@@ -1709,7 +1709,14 @@ open class Terminal {
                         for y in hlt.start.row...(buffer.y+buffer.yBase) {
                             let line = buffer.lines [y]
                             let startCol = y == hlt.start.row ? min (hlt.start.col, cols-1) : 0
-                            let endCol = y == buffer.y ? min (buffer.x, cols-1) : (marginMode ? buffer.marginRight : cols-1)
+                            // `buffer.x` is the cursor's resting column, one past the
+                            // last character actually printed — using it inclusively
+                            // here tagged one extra, never-written cell with the link's
+                            // payload, so its underline overshot by a column whenever
+                            // the link was the last thing printed on its line (a cell
+                            // written later would just overwrite the false tag, which
+                            // is why the bug only showed up at end-of-line).
+                            let endCol = y == buffer.y ? min (buffer.x - 1, cols-1) : (marginMode ? buffer.marginRight : cols-1)
                             if endCol > startCol {
                                 for x in startCol...endCol {
                                     var cd = line [x]

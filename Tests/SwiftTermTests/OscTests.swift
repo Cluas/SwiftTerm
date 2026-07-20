@@ -201,6 +201,47 @@ final class SwiftTermOsc {
         // Should not crash, ID helps group multi-line hyperlinks
     }
 
+    /// Regression test: closing a hyperlink used to tag one cell too many —
+    /// `buffer.x` (the cursor's resting column, one past the last printed
+    /// character) was used as an INCLUSIVE upper bound when painting the
+    /// payload onto the line, so the still-blank cell right after the link
+    /// text got falsely tagged too. Harmless if something is printed there
+    /// afterward (it just overwrites the false tag), but when the link is
+    /// the last thing on its line, that cell keeps the payload and renders
+    /// with an underline extending one column past the visible link text.
+    @Test func testOscHyperlinkDoesNotTagCellPastEndOfLine() {
+        let h = HeadlessTerminal(queue: SwiftTermTests.queue) { _ in }
+        let t = h.terminal!
+
+        t.feed(text: "\u{1b}]8;;https://example.com\u{07}")
+        t.feed(text: "link")
+        t.feed(text: "\u{1b}]8;;\u{07}")
+        // Nothing else printed on this line — the bug only showed up here.
+
+        let line = t.buffer.lines [t.buffer.yBase + t.buffer.y]
+        #expect(line [0].hasPayload)
+        #expect(line [3].hasPayload)
+        #expect(!line [4].hasPayload, "the cell right after the link text must not inherit its payload")
+    }
+
+    /// Companion case: text printed after the closed link must still not be
+    /// tagged (this direction already worked before the fix — the next
+    /// character write creates a fresh, unpayloaded cell that overwrites the
+    /// off-by-one's false tag — but is worth locking in alongside the fix).
+    @Test func testOscHyperlinkStopsExactlyWhenFollowedByText() {
+        let h = HeadlessTerminal(queue: SwiftTermTests.queue) { _ in }
+        let t = h.terminal!
+
+        t.feed(text: "\u{1b}]8;;https://example.com\u{07}")
+        t.feed(text: "link")
+        t.feed(text: "\u{1b}]8;;\u{07}")
+        t.feed(text: " more")
+
+        let line = t.buffer.lines [t.buffer.yBase + t.buffer.y]
+        #expect(line [3].hasPayload)
+        #expect(!line [4].hasPayload, "the space after the closed link must not carry its payload")
+    }
+
     /// Test OSC 52 (clipboard) query
     /// From Ghostty: "clipboard_contents"
     @Test func testOscClipboardQuery() {
