@@ -144,4 +144,64 @@ final class LinkLookupTests: TerminalDelegate {
         let link = terminal.link(at: .screen(Position(col: 10, row: 0)), mode: .explicitAndImplicit)
         #expect(link == "https://www.example.com")
     }
+
+    // MARK: - viewportLineText / tagPlainTextLink
+    //
+    // These support a host app (Moshi) linkifying plain http(s) URLs with its
+    // OWN detector, deliberately bypassing SwiftTerm's built-in implicit-link
+    // regex — testImplicitFilePathLookup above proves that regex matches bare
+    // file paths too (a false positive Moshi specifically wants to avoid).
+
+    @Test func testViewportLineTextReturnsPlainTrimmedText() {
+        let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 40, rows: 3))
+        terminal.feed(text: "hello world")
+
+        #expect(terminal.viewportLineText(row: 0) == "hello world")
+        #expect(terminal.viewportLineText(row: 1) == "")
+    }
+
+    @Test func testViewportLineTextOutOfBoundsReturnsEmpty() {
+        let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 20, rows: 2))
+        terminal.feed(text: "hi")
+
+        #expect(terminal.viewportLineText(row: -1) == "")
+        #expect(terminal.viewportLineText(row: 99) == "")
+    }
+
+    @Test func testTagPlainTextLinkMakesTextTappableAndExplicit() {
+        let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 40, rows: 1))
+        terminal.feed(text: "see http://example.com/x for details")
+
+        // "http://example.com/x" starts at column 4, 20 characters long.
+        terminal.tagPlainTextLink(row: 0, startCol: 4, endCol: 23, url: "http://example.com/x")
+
+        // Explicit-only lookup (what `.always` highlight mode / tap-to-open
+        // uses) now finds it — proving this is indistinguishable from a real
+        // OSC-8 hyperlink to the rest of SwiftTerm, not just a heuristic match.
+        let explicit = terminal.link(at: .buffer(Position(col: 10, row: 0)), mode: .explicitOnly)
+        #expect(explicit == "http://example.com/x")
+
+        // Untouched text on either side is not part of the link.
+        #expect(terminal.link(at: .buffer(Position(col: 0, row: 0)), mode: .explicitOnly) == nil)
+        #expect(terminal.link(at: .buffer(Position(col: 25, row: 0)), mode: .explicitOnly) == nil)
+    }
+
+    @Test func testTagPlainTextLinkClampsOutOfRangeColumns() {
+        let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 10, rows: 1))
+        terminal.feed(text: "0123456789")
+
+        // endCol well past the last column must clamp, not crash / corrupt.
+        terminal.tagPlainTextLink(row: 0, startCol: 5, endCol: 999, url: "http://x")
+        #expect(terminal.link(at: .buffer(Position(col: 9, row: 0)), mode: .explicitOnly) == "http://x")
+        #expect(terminal.link(at: .buffer(Position(col: 4, row: 0)), mode: .explicitOnly) == nil)
+    }
+
+    @Test func testTagPlainTextLinkIgnoresInvertedRange() {
+        let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 10, rows: 1))
+        terminal.feed(text: "0123456789")
+
+        // startCol > endCol: a no-op, not a crash.
+        terminal.tagPlainTextLink(row: 0, startCol: 5, endCol: 2, url: "http://x")
+        #expect(terminal.link(at: .buffer(Position(col: 3, row: 0)), mode: .explicitOnly) == nil)
+    }
 }

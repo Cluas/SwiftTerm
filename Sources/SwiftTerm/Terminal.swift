@@ -1744,7 +1744,52 @@ open class Terminal {
             hyperLinkTracking = (start: Position(col: buffer.x, row: buffer.y+buffer.yBase), payload: String (bytes:data, encoding: .ascii) ?? "")
         }
     }
-    
+
+    /// Plain-text content of the given VIEWPORT row (0..<rows — relative to
+    /// the currently visible screen, not absolute/scrollback-aware), with
+    /// trailing blanks trimmed. Lets a host app run its OWN plain-text URL
+    /// detection (e.g. via NSDataDetector) over what's on screen right now,
+    /// without needing access to the terminal's internal absolute-row/
+    /// scrollback bookkeeping (`Buffer.yBase`/`Buffer.lines` are both
+    /// internal, not public).
+    public func viewportLineText(row: Int) -> String {
+        guard row >= 0, row < rows else { return "" }
+        let absoluteRow = row + buffer.yBase
+        guard absoluteRow >= 0, absoluteRow < buffer.lines.count else { return "" }
+        return buffer.lines[absoluteRow].translateToString(trimRight: true)
+    }
+
+    /// Tags a single-row column range `[startCol, endCol]` (inclusive) of the
+    /// given VIEWPORT row as a hyperlink to `url` — the exact same
+    /// `cell.hasPayload` mechanism a real OSC-8 hyperlink uses, so it gets
+    /// underlined/made tappable through the same existing path
+    /// (`explicitLinkMatch` just scans for contiguous same-payload cells;
+    /// it doesn't know or care whether the payload arrived via a live
+    /// escape sequence or this call).
+    ///
+    /// For linkifying plain http(s) URLs a host app detects itself: SwiftTerm's
+    /// own built-in implicit-link regex mis-matches bare file/relative paths
+    /// and can truncate real URLs at certain characters, so that path is
+    /// deliberately not exercised by callers using `linkReporting = .explicit`
+    /// (Moshi's own choice) — this gives them a way to still make plain URLs
+    /// tappable using their own (more conservative / scheme-anchored) detector,
+    /// without inheriting those false positives.
+    public func tagPlainTextLink(row: Int, startCol: Int, endCol: Int, url: String) {
+        guard row >= 0, row < rows, startCol <= endCol,
+              let urlToken = TinyAtom.lookup(value: ";" + url) else { return }
+        let absoluteRow = row + buffer.yBase
+        guard absoluteRow >= 0, absoluteRow < buffer.lines.count else { return }
+        let line = buffer.lines[absoluteRow]
+        let clampedStart = max(0, min(startCol, cols - 1))
+        let clampedEnd = max(0, min(endCol, cols - 1))
+        guard clampedEnd >= clampedStart else { return }
+        for x in clampedStart...clampedEnd {
+            var cd = line[x]
+            cd.setPayload(atom: urlToken)
+            line[x] = cd
+        }
+    }
+
     // Copy to clipboard with sequence on the form:
     //    ESC ] 52 ; c ; [base64 data] \a
     // where c is for copy and the only thing supported.
