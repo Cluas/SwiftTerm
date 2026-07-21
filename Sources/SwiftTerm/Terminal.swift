@@ -1716,7 +1716,18 @@ open class Terminal {
                             // the link was the last thing printed on its line (a cell
                             // written later would just overwrite the false tag, which
                             // is why the bug only showed up at end-of-line).
-                            let endCol = y == buffer.y ? min (buffer.x - 1, cols-1) : (marginMode ? buffer.marginRight : cols-1)
+                            //
+                            // `y` here is an ABSOLUTE row index (the loop range above is
+                            // `hlt.start.row...(buffer.y+buffer.yBase)`, both absolute),
+                            // but `buffer.y` alone is relative to the viewport — comparing
+                            // them directly is only correct by coincidence when there's no
+                            // scrollback yet (`buffer.yBase == 0`). In any real session
+                            // (essentially always, once more than one screen has been
+                            // printed), this comparison is never true, so `endCol` always
+                            // fell through to the cols-1/marginRight branch — tagging the
+                            // ENTIRE rest of the link's own single-row line, not just past
+                            // its last character. Comparing two absolute row numbers fixes it.
+                            let endCol = y == buffer.y+buffer.yBase ? min (buffer.x - 1, cols-1) : (marginMode ? buffer.marginRight : cols-1)
                             if endCol > startCol {
                                 for x in startCol...endCol {
                                     var cd = line [x]

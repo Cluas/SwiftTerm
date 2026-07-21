@@ -224,6 +224,43 @@ final class SwiftTermOsc {
         #expect(!line [4].hasPayload, "the cell right after the link text must not inherit its payload")
     }
 
+    /// Regression test: the end-of-line fix above was only ever verified on a
+    /// FRESH terminal (no scrollback, `buffer.yBase == 0`). In `oscHyperlink`'s
+    /// close handler, the row loop (`for y in hlt.start.row...(buffer.y +
+    /// buffer.yBase)`) iterates ABSOLUTE row indices, but the `endCol` ternary
+    /// compared that same `y` against `buffer.y` ALONE — the viewport-relative
+    /// row, not absolute. Once any scrollback has accumulated (normal after
+    /// more than one screen of output — i.e. essentially always in a real
+    /// session), `y == buffer.y` is comparing an absolute row number to a
+    /// small relative one and is never true, so `endCol` always fell through
+    /// to `cols-1`/`marginRight` — tagging the link's ENTIRE line, not just
+    /// up to its last visible character. This is what the user's real-world
+    /// hyperlink (from a live Claude Code CLI session, well past one screen
+    /// of scrollback) actually hit — confirmed by instrumenting and logging
+    /// `hlt.start.row`/`buffer.y`/`buffer.yBase`/`endCol` live.
+    @Test func testOscHyperlinkDoesNotOvershootPastScrollback() {
+        let h = HeadlessTerminal(queue: SwiftTermTests.queue) { _ in }
+        let t = h.terminal!
+
+        // Push well past one screen (25 rows) so buffer.yBase > 0.
+        for i in 0..<100 {
+            t.feed(text: "filler line \(i)\r\n")
+        }
+
+        t.feed(text: "\u{1b}]8;;https://example.com\u{07}")
+        t.feed(text: "link")
+        t.feed(text: "\u{1b}]8;;\u{07}")
+        // Nothing else printed on this line — end-of-line case, now with
+        // real scrollback behind it.
+
+        #expect(t.buffer.yBase > 0, "test setup should have produced scrollback")
+        let row = t.buffer.yBase + t.buffer.y
+        let line = t.buffer.lines [row]
+        #expect(line [0].hasPayload)
+        #expect(line [3].hasPayload)
+        #expect(!line [4].hasPayload, "the cell right after the link text must not inherit its payload, even with scrollback behind it")
+    }
+
     /// Companion case: text printed after the closed link must still not be
     /// tagged (this direction already worked before the fix — the next
     /// character write creates a fresh, unpayloaded cell that overwrites the
