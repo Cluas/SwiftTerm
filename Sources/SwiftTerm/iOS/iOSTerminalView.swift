@@ -730,6 +730,20 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
             }
             queuePendingDisplay()
         } else {
+            // A tap that lands on a link shouldn't need a SEPARATE tap just
+            // to focus the view first — check for one here too, so a single
+            // tap on a visible link both grabs focus and opens it (matching
+            // every other terminal's UX). Previously this branch unconditionally
+            // treated the first tap as "just focus", silently swallowing it
+            // whenever the user tapped a link while the keyboard was dismissed.
+            if gestureRecognizer.state == .ended {
+                let tapHit = calculateTapHit(gesture: gestureRecognizer).grid
+                if let result = linkForClick(at: tapHit, hasCommandModifier: commandActive) {
+                    let _ = becomeFirstResponder ()
+                    terminalDelegate?.requestOpenLink(source: self, link: result.link, params: result.params)
+                    return
+                }
+            }
             let _ = becomeFirstResponder ()
         }
     }
