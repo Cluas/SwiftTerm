@@ -208,6 +208,14 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
 #endif
     var cellDimension: CellDimension
     var caretView: CaretView?
+    /// Shows the IME's in-progress composition (Pinyin/Zhuyin/Cangjie before
+    /// a candidate is picked, Korean syllable assembly, etc.) at the cursor
+    /// position. `setMarkedText`/`unmarkText` track this in `textInputStorage`/
+    /// `_markedTextRange` for `UITextInput` conformance, but nothing ever
+    /// rendered it — composing text was silently invisible on screen even
+    /// though the OS's own candidate bar (above the keyboard) worked fine.
+    /// Lazily created; see `updateIMECompositionOverlay()`.
+    var imeCompositionLabel: UILabel?
     var terminal: Terminal!
     private var progressBarView: TerminalProgressBarView?
     private var progressReportTimer: Timer?
@@ -1614,6 +1622,7 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         _selectedTextRange = TextRange(from: insertedPosition, to: insertedPosition)
 
         endTextInputEdit()
+        updateIMECompositionOverlay()
 
         if !terminal.keyboardEnhancementFlags.isEmpty {
             sendKittyTextInput(textToInsert, applyModifiers: applyModifiers)

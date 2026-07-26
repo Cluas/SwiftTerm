@@ -244,7 +244,7 @@ extension TerminalView: UITextInput {
 
             let selectionStartIndex = rangeStartIndex + newTextRangeOffset
             _markedTextRange = TextRange(from: rangeStartPosition, maxOffset: newText.count, in: textInputStorage) 
-            _selectedTextRange = TextRange(from: TextPosition(offset: selectionStartIndex), 
+            _selectedTextRange = TextRange(from: TextPosition(offset: selectionStartIndex),
                                            to: TextPosition(offset: selectionStartIndex + newTextRangeLength))
         } else {
             textInputStorage.removeSubrange(rangeToReplace.fullRange(in: textInputStorage))
@@ -253,6 +253,45 @@ extension TerminalView: UITextInput {
         }
 
         endTextInputEdit()
+        updateIMECompositionOverlay()
+    }
+
+    /// Show/update/hide the composition overlay at the cursor position,
+    /// mirroring `updateCursorPosition()`'s geometry. Composing text must
+    /// never reach the terminal buffer/remote until committed (that's the
+    /// whole point of marked text), so it can't just be `feed()`-ed in —
+    /// this paints it as a small underlined label instead, removed the
+    /// moment composition ends (commit via `unmarkText`, or cancellation).
+    func updateIMECompositionOverlay() {
+        guard let markedRange = _markedTextRange,
+              let composingText = text(in: markedRange), !composingText.isEmpty else {
+            imeCompositionLabel?.removeFromSuperview()
+            imeCompositionLabel = nil
+            return
+        }
+        let label: UILabel
+        if let existing = imeCompositionLabel {
+            label = existing
+        } else {
+            label = UILabel()
+            label.numberOfLines = 1
+            imeCompositionLabel = label
+            addSubview(label)
+        }
+        label.attributedText = NSAttributedString(string: composingText, attributes: [
+            .font: font,
+            .foregroundColor: nativeForegroundColor,
+            .underlineStyle: NSUnderlineStyle.single.rawValue,
+            .underlineColor: nativeForegroundColor
+        ])
+        label.sizeToFit()
+
+        let buffer = terminal.displayBuffer
+        let vy = buffer.yBase + buffer.y
+        let doublePosition = buffer.lines[vy].renderMode == .single ? 1.0 : 2.0
+        label.frame.origin = CGPoint(
+            x: cellDimension.width * doublePosition * CGFloat(buffer.x),
+            y: cellDimension.height * CGFloat(buffer.y + buffer.yBase))
     }
 
     func resetInputBuffer (_ loc: String = #function)
@@ -264,8 +303,9 @@ extension TerminalView: UITextInput {
         _selectedTextRange = TextRange (from: TextPosition(offset: 0), to: TextPosition(offset: 0))
         _markedTextRange = nil
         endTextInputEdit()
+        updateIMECompositionOverlay()
     }
-    
+
     public func unmarkText() {
         uitiLog("unmarkText() \(textInputStateDescription())")
         if let previouslyMarkedRange = _markedTextRange {
@@ -282,7 +322,8 @@ extension TerminalView: UITextInput {
             _selectedTextRange = TextRange(from: rangeEndPosition, to: rangeEndPosition)
             _markedTextRange = nil
             endTextInputEdit()
-        }        
+            updateIMECompositionOverlay()
+        }
     }
     
     public var beginningOfDocument: UITextPosition {
