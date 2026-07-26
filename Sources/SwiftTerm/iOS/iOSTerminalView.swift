@@ -216,6 +216,13 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     /// though the OS's own candidate bar (above the keyboard) worked fine.
     /// Lazily created; see `updateIMECompositionOverlay()`.
     var imeCompositionLabel: UILabel?
+    /// A thin bar marking the IME's actual insertion point WITHIN the
+    /// composing text (from `_selectedTextRange`, not just "the end") —
+    /// SwiftTerm's own terminal cursor (`caretView`) can't move here, since
+    /// composing text never reaches the buffer, so without this there's
+    /// nothing showing where the next keystroke lands while typing e.g.
+    /// "nihao". Lazily created; see `updateIMECompositionOverlay()`.
+    var imeCompositionCaret: UIView?
     var terminal: Terminal!
     private var progressBarView: TerminalProgressBarView?
     private var progressReportTimer: Timer?

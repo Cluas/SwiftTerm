@@ -262,11 +262,16 @@ extension TerminalView: UITextInput {
     /// whole point of marked text), so it can't just be `feed()`-ed in —
     /// this paints it as a small underlined label instead, removed the
     /// moment composition ends (commit via `unmarkText`, or cancellation).
+    /// Also advances a caret bar to the IME's actual insertion point WITHIN
+    /// that text as it grows, so it visibly tracks what's being typed
+    /// instead of sitting static at the start.
     func updateIMECompositionOverlay() {
         guard let markedRange = _markedTextRange,
               let composingText = text(in: markedRange), !composingText.isEmpty else {
             imeCompositionLabel?.removeFromSuperview()
             imeCompositionLabel = nil
+            imeCompositionCaret?.removeFromSuperview()
+            imeCompositionCaret = nil
             return
         }
         let label: UILabel
@@ -278,20 +283,42 @@ extension TerminalView: UITextInput {
             imeCompositionLabel = label
             addSubview(label)
         }
-        label.attributedText = NSAttributedString(string: composingText, attributes: [
+        let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: nativeForegroundColor,
             .underlineStyle: NSUnderlineStyle.single.rawValue,
             .underlineColor: nativeForegroundColor
-        ])
+        ]
+        label.attributedText = NSAttributedString(string: composingText, attributes: attributes)
         label.sizeToFit()
 
         let buffer = terminal.displayBuffer
         let vy = buffer.yBase + buffer.y
         let doublePosition = buffer.lines[vy].renderMode == .single ? 1.0 : 2.0
-        label.frame.origin = CGPoint(
+        let origin = CGPoint(
             x: cellDimension.width * doublePosition * CGFloat(buffer.x),
             y: cellDimension.height * CGFloat(buffer.y + buffer.yBase))
+        label.frame.origin = origin
+
+        let caret: UIView
+        if let existing = imeCompositionCaret {
+            caret = existing
+        } else {
+            caret = UIView()
+            imeCompositionCaret = caret
+            addSubview(caret)
+        }
+        // `_selectedTextRange` tracks the insertion point relative to the
+        // whole `textInputStorage`; offset it by where the marked range
+        // itself starts to get the column WITHIN the composing text.
+        let markedStart = markedRange.startPosition.offset
+        let caretOffset = max(0, min(_selectedTextRange.startPosition.offset - markedStart, composingText.count))
+        let prefix = String(composingText.prefix(caretOffset))
+        let prefixWidth = (prefix as NSString).size(withAttributes: attributes).width
+        caret.backgroundColor = nativeForegroundColor
+        caret.frame = CGRect(x: origin.x + prefixWidth, y: origin.y,
+                              width: 2, height: cellDimension.height)
+        bringSubviewToFront(caret)
     }
 
     func resetInputBuffer (_ loc: String = #function)
