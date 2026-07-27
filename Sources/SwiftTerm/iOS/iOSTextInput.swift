@@ -262,12 +262,20 @@ extension TerminalView: UITextInput {
     /// whole point of marked text), so it can't just be `feed()`-ed in —
     /// this paints it as a small underlined label instead, removed the
     /// moment composition ends (commit via `unmarkText`, or cancellation).
-    /// Moves the EXISTING terminal caret (`caretView`) to the IME's actual
-    /// insertion point WITHIN that text as it grows — not a second, separate
-    /// cursor — so there's still exactly one cursor on screen, just one that
-    /// tracks composition instead of sitting frozen at the pre-composition
-    /// position. `updateCursorPosition()` naturally snaps it back once
-    /// composition ends and the buffer's real cursor starts moving again.
+    /// Moves the EXISTING terminal caret (`caretView`) to the end of that
+    /// text as it grows — not a second, separate cursor — so there's still
+    /// exactly one cursor on screen, just one that tracks composition
+    /// instead of sitting frozen at the pre-composition position.
+    /// `updateCursorPosition()` naturally snaps it back once composition
+    /// ends and the buffer's real cursor starts moving again.
+    ///
+    /// Deliberately always the END of the composing text, not wherever
+    /// `_selectedTextRange` claims the insertion point is: phonetic IMEs
+    /// (Pinyin, Zhuyin, romaji) replace the whole marked string on every
+    /// keystroke and candidate-bar paging can report a stale/reset
+    /// selection (e.g. collapsed to the start) without the user actually
+    /// repositioning anything, which made the caret jitter back to the
+    /// front of the composition mid-typing when this tracked that value.
     func updateIMECompositionOverlay() {
         guard let markedRange = _markedTextRange,
               let composingText = text(in: markedRange), !composingText.isEmpty else {
@@ -305,15 +313,9 @@ extension TerminalView: UITextInput {
             y: cellDimension.height * CGFloat(buffer.y + buffer.yBase))
         label.frame.origin = origin
 
-        // `_selectedTextRange` tracks the insertion point relative to the
-        // whole `textInputStorage`; offset it by where the marked range
-        // itself starts to get the column WITHIN the composing text.
-        let markedStart = markedRange.startPosition.offset
-        let caretOffset = max(0, min(_selectedTextRange.startPosition.offset - markedStart, composingText.count))
-        let prefix = String(composingText.prefix(caretOffset))
-        let prefixWidth = (prefix as NSString).size(withAttributes: attributes).width
+        let fullWidth = (composingText as NSString).size(withAttributes: attributes).width
         if let caretView {
-            caretView.frame.origin = CGPoint(x: origin.x + prefixWidth, y: origin.y)
+            caretView.frame.origin = CGPoint(x: origin.x + fullWidth, y: origin.y)
             if caretView.superview == nil { addSubview(caretView) }
         }
     }
