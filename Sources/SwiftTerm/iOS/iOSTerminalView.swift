@@ -214,15 +214,10 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     /// `_markedTextRange` for `UITextInput` conformance, but nothing ever
     /// rendered it — composing text was silently invisible on screen even
     /// though the OS's own candidate bar (above the keyboard) worked fine.
-    /// Lazily created; see `updateIMECompositionOverlay()`.
+    /// Lazily created; see `updateIMECompositionOverlay()`, which also moves
+    /// `caretView` itself to track the composition's insertion point —
+    /// deliberately not a second, separate caret.
     var imeCompositionLabel: UILabel?
-    /// A thin bar marking the IME's actual insertion point WITHIN the
-    /// composing text (from `_selectedTextRange`, not just "the end") —
-    /// SwiftTerm's own terminal cursor (`caretView`) can't move here, since
-    /// composing text never reaches the buffer, so without this there's
-    /// nothing showing where the next keystroke lands while typing e.g.
-    /// "nihao". Lazily created; see `updateIMECompositionOverlay()`.
-    var imeCompositionCaret: UIView?
     var terminal: Terminal!
     private var progressBarView: TerminalProgressBarView?
     private var progressReportTimer: Timer?
@@ -2121,8 +2116,49 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     public func deleteBackward() {
         uitiLog("deleteBackward() \(textInputStateDescription())")
 
+        if let markedRange = _markedTextRange, !markedRange.isEmpty {
+            // Composing (Pinyin, Zhuyin, Cangjie, Korean syllable assembly,
+            // etc.): an ordinary single tap on the system keyboard's delete
+            // key is usually handled ENTIRELY inside the IME itself — it
+            // shrinks its own internal buffer and calls setMarkedText again,
+            // never reaching here at all. But the keyboard's HOLD-TO-REPEAT
+            // for that same key calls deleteBackward() directly, bypassing
+            // the IME. Composing text is never fed to the terminal/remote
+            // (that's the whole point of marked text — nothing commits until
+            // a candidate is picked), so there is nothing real to backspace
+            // over yet: the OLD code below sent one real backspace PER
+            // CHARACTER in the whole marked range, which — since none of
+            // those characters were ever actually on the terminal — instead
+            // deleted whatever WAS already there before composition started,
+            // and cleared the ENTIRE composition in one shot. That left
+            // nothing for a SECOND repeat tick to act on, reading as
+            // "holding backspace doesn't keep deleting" specifically under
+            // this IME. Just shrink the marked range by one character
+            // instead, so repeated ticks (or repeated discrete taps) delete
+            // it incrementally like typing normally would expect.
+            beginTextInputEdit()
+            let endOffset = markedRange.endPosition.offset
+            let newEndOffset = endOffset - 1
+            let deleteIndex = textInputStorage.index(textInputStorage.startIndex, offsetBy: newEndOffset)
+            textInputStorage.remove(at: deleteIndex)
+            if newEndOffset <= markedRange.startPosition.offset {
+                // The composition is now empty — cancel it outright.
+                _markedTextRange = nil
+                _selectedTextRange = TextRange(from: TextPosition(offset: newEndOffset),
+                                               to: TextPosition(offset: newEndOffset))
+            } else {
+                _markedTextRange = TextRange(from: markedRange.startPosition,
+                                             to: TextPosition(offset: newEndOffset))
+                _selectedTextRange = TextRange(from: TextPosition(offset: newEndOffset),
+                                               to: TextPosition(offset: newEndOffset))
+            }
+            endTextInputEdit()
+            updateIMECompositionOverlay()
+            return
+        }
+
         // after backward deletion, marked range is always cleared, and length of selected range is always zero
-        let rangeToDelete = _markedTextRange ?? _selectedTextRange
+        let rangeToDelete = _selectedTextRange
         var rangeStartPosition = rangeToDelete.startPosition
         var rangeStartIndex = rangeStartPosition.offset
         if rangeToDelete.isEmpty {
