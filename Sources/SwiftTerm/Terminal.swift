@@ -1759,6 +1759,25 @@ open class Terminal {
         return buffer.lines[absoluteRow].translateToString(trimRight: true)
     }
 
+    /// Whether the given VIEWPORT row's content continues (soft-wrapped) onto
+    /// the next row, per the emulator's own line-wrap bookkeeping — the same
+    /// bit `BufferLine.isWrapped` tracks internally, just not previously
+    /// exposed. A host app detecting multi-row logical lines (e.g. joining a
+    /// URL that wrapped across rows before matching a link regex) needs this
+    /// exact signal: inferring "did it wrap" from whether the row's trimmed
+    /// text happens to fill the full column width is a plausible-looking
+    /// stand-in that quietly breaks the moment any earlier double-width
+    /// character (CJK, emoji) on that row throws off a character-count vs.
+    /// column-count comparison, without affecting the (correctly
+    /// column-based) rendering — silently truncating the joined text with no
+    /// visible sign anything went wrong.
+    public func isRowWrapped(_ row: Int) -> Bool {
+        guard row >= 0, row < rows else { return false }
+        let absoluteRow = row + buffer.yBase
+        guard absoluteRow + 1 >= 0, absoluteRow + 1 < buffer.lines.count else { return false }
+        return buffer.lines[absoluteRow + 1].isWrapped
+    }
+
     /// Tags a single-row column range `[startCol, endCol]` (inclusive) of the
     /// given VIEWPORT row as a hyperlink to `url` — the exact same
     /// `cell.hasPayload` mechanism a real OSC-8 hyperlink uses, so it gets
