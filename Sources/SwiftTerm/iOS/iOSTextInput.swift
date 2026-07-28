@@ -265,9 +265,9 @@ extension TerminalView: UITextInput {
     /// Moves the EXISTING terminal caret (`caretView`) to the end of that
     /// text as it grows — not a second, separate cursor — so there's still
     /// exactly one cursor on screen, just one that tracks composition
-    /// instead of sitting frozen at the pre-composition position.
-    /// `updateCursorPosition()` naturally snaps it back once composition
-    /// ends and the buffer's real cursor starts moving again.
+    /// instead of sitting frozen at the pre-composition position. Left
+    /// exactly where composition put it once composition ends — see the
+    /// guard branch below for why that's deliberate, not a missing reset.
     ///
     /// Deliberately always the END of the composing text, not wherever
     /// `_selectedTextRange` claims the insertion point is: phonetic IMEs
@@ -281,10 +281,18 @@ extension TerminalView: UITextInput {
               let composingText = text(in: markedRange), !composingText.isEmpty else {
             imeCompositionLabel?.removeFromSuperview()
             imeCompositionLabel = nil
-            // Composition ended (or never started) — let the real cursor
-            // resume tracking the buffer's actual position, undoing any
-            // displacement from tracking composition.
-            updateCursorPosition()
+            // Composition ended (commit or cancel) — do NOT call
+            // updateCursorPosition() here. The committed text was just
+            // `send()`-ed to the remote and hasn't been echoed back yet, so
+            // the terminal buffer's OWN cursor (buffer.x/y) is still sitting
+            // wherever it was BEFORE this composition started — snapping to
+            // it now visibly yanks the caret backwards (reported: cursor
+            // jumps to the front right after finishing a word). Leaving
+            // caretView exactly where composition left it (the end of the
+            // just-committed text) is the visually correct state; the
+            // normal feed()-driven redraw already calls
+            // updateCursorPosition() once the real echo lands, same as any
+            // other typed input.
             return
         }
         let label: UILabel
