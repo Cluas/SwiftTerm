@@ -276,6 +276,16 @@ extension TerminalView: UITextInput {
     /// selection (e.g. collapsed to the start) without the user actually
     /// repositioning anything, which made the caret jitter back to the
     /// front of the composition mid-typing when this tracked that value.
+    /// True while composing text is actually rendered on screen — the marked
+    /// range and the overlay showing it both exist. `updateCursorPosition()`
+    /// checks this to stay out of the composition's way; see the comment
+    /// there. Both halves matter: a marked range with no label (composition
+    /// just cancelled, label already torn down) has no overlay geometry to
+    /// defer to.
+    var hasActiveIMEComposition: Bool {
+        _markedTextRange != nil && imeCompositionLabel != nil
+    }
+
     func updateIMECompositionOverlay() {
         guard let markedRange = _markedTextRange,
               let composingText = text(in: markedRange), !composingText.isEmpty else {

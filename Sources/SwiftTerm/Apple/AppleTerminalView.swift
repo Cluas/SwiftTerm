@@ -1660,6 +1660,22 @@ extension TerminalView {
     func updateCursorPosition()
     {
         guard let caretView else { return }
+#if os(iOS) || os(visionOS)
+        // While an IME composition is on screen the caret belongs to the
+        // OVERLAY, not to the terminal buffer. Composing text is deliberately
+        // never fed to the terminal (nothing commits until a candidate is
+        // picked), so `buffer.x`/`buffer.y` still point at where composition
+        // STARTED — i.e. the front of the text the user is looking at. This
+        // function runs from `updateDisplay`, which runs on every redraw the
+        // remote provokes, so a pane that keeps painting (a coding agent's
+        // status line, a resync, a reflow) would repeatedly yank the caret
+        // from the end of the Pinyin back to its start, mid-word. Hand the
+        // placement to the code that knows about the composition instead.
+        if hasActiveIMEComposition {
+            updateIMECompositionOverlay()
+            return
+        }
+#endif
         //let lineOrigin = CGPoint(x: 0, y: frame.height - (cellDimension.height * (CGFloat(terminal.buffer.y - terminal.buffer.yDisp + 1))))
         //caretView.frame.origin = CGPoint(x: lineOrigin.x + (cellDimension.width * CGFloat(terminal.buffer.x)), y: lineOrigin.y)
         let buffer = terminal.displayBuffer
