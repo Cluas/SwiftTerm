@@ -1537,8 +1537,26 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         true
     }
     
+    /// Always true for a terminal.
+    ///
+    /// UIKit gates the delete key's hold-to-repeat on this: when the input
+    /// view reports "no text", the keyboard delivers a single
+    /// `deleteBackward()` on press and never starts repeating, so holding the
+    /// key deletes exactly one character.
+    ///
+    /// `textInputStorage` is not the terminal's content — it is only the
+    /// shadow copy of what has been typed since the last commit, emptied by
+    /// `resetInputBuffer()` on every Return, and empty for anything the REMOTE
+    /// put on the screen: a reattached session whose prompt already holds a
+    /// half-written command, program output, an echoed paste. In none of those
+    /// cases is there "nothing to delete" — the terminal always has a screen,
+    /// and what a backspace does is the remote's decision, not ours. Answering
+    /// from the shadow buffer made hold-to-delete dead in exactly those cases
+    /// (most visibly right after reconnecting to a session with text already
+    /// on its input line), while working normally for text typed in the same
+    /// line — which reads as the keyboard breaking at random.
     public var hasText: Bool {
-        return !textInputStorage.isEmpty
+        return true
     }
 
     func isAutoPeriodReplacement(_ text: String) -> Bool {
