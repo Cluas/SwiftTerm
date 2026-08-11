@@ -247,6 +247,15 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     var textInputStorage: String = ""
     var pendingAutoPeriodDeleteWasSpace: Bool = false
 
+    /// The character `primePhantomInputPrefix()` parks in front of the caret.
+    ///
+    /// A newline for two reasons. It is a hard word boundary, so the keyboard's
+    /// accelerated "delete by word" mode can never select a range running from
+    /// the phantom into real typed text. And it reads as "start of line" to the
+    /// prediction / candidate bar, which is exactly where the caret
+    /// conceptually is when nothing has been typed here yet.
+    static let phantomInputCharacter: Character = "\n"
+
     // This tracks the marked text, part of the UITextInput protocol, which is used to flag temporary data entry, that might
     // be removed afterwards by the input system (input methods will insert approximiations, mark and change on demand)
     var _markedTextRange: TextRange?
@@ -2188,6 +2197,12 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
                 // In that scenario, we should just send the backspace character to the terminal
                 pendingAutoPeriodDeleteWasSpace = false
                 self.sendBackspaceKey()
+                // Leaving the buffer empty here is what killed hold-to-repeat:
+                // UIKit measures the document between ticks and stops as soon as
+                // there is nothing in front of the caret. Put the phantom back.
+                beginTextInputEdit()
+                primePhantomInputPrefix()
+                endTextInputEdit()
                 uitiLog("deleteBackward() no text to delete, sending backspace")
                 return
             }
@@ -2209,16 +2224,20 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
             // Send as many backspaces that are in the range to delete. When on auto-repeat, after a some time
             // pressing the backspace, it will delete chunks of text at a time.
             let oldText = textInputStorage[rangeToDelete.fullRange(in: textInputStorage)]
-            let backspaces = oldText.count
+            let backspaces = remoteBackspaceCount(for: oldText)
             for _ in 0..<backspaces {
                 self.sendBackspaceKey()
             }
 
             textInputStorage.removeSubrange(rangeToDelete.fullRange(in: textInputStorage))
         }
-        
+
         _markedTextRange = nil
         _selectedTextRange = TextRange(from: rangeStartPosition, to: rangeStartPosition)
+        // Same reason as the empty-buffer branch above: if that delete drained
+        // the buffer, the next repeat tick would find nothing in front of the
+        // caret and the hold would stop here instead of continuing.
+        primePhantomInputPrefix()
 
         endTextInputEdit()
     }
@@ -2245,6 +2264,11 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         if response {
             caretView?.updateCursorStyle()
             terminal.setTerminalFocus(true)
+            // The keyboard is coming up over a screen the remote owns; make sure
+            // its delete key will repeat over that text from the very first hold.
+            beginTextInputEdit()
+            primePhantomInputPrefix()
+            endTextInputEdit()
         }
         return response
     }

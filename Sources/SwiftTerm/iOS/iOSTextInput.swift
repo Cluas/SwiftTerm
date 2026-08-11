@@ -148,7 +148,7 @@ extension TerminalView: UITextInput {
         if let normalized = normalizedAutoPeriodReplacementText(text, oldText: oldText, rangeToReplace: r) {
             replacementText = normalized
         }
-        let backspaces = oldText.count
+        let backspaces = remoteBackspaceCount(for: oldText)
         for _ in 0..<backspaces {
             self.send ([0x7f])
         }
@@ -346,8 +346,54 @@ extension TerminalView: UITextInput {
         textInputStorage = ""
         _selectedTextRange = TextRange (from: TextPosition(offset: 0), to: TextPosition(offset: 0))
         _markedTextRange = nil
+        primePhantomInputPrefix()
         endTextInputEdit()
         updateIMECompositionOverlay()
+    }
+
+    /// Park one phantom character in front of the caret so the system keyboard
+    /// keeps repeating the delete key.
+    ///
+    /// UIKit does not ask `hasText` on every repeat tick. Before each tick it
+    /// measures the document — the position one character back from the caret —
+    /// and stops the moment that range comes back empty. In a terminal that
+    /// range is empty far more often than there is genuinely nothing to delete,
+    /// because `textInputStorage` only shadows what was typed *here* since the
+    /// last Return. It is empty for everything the REMOTE put on the line: a
+    /// reattached session holding a half-written command, a paste the shell
+    /// echoed back, a history entry recalled with the up arrow. Patch (10) made
+    /// `hasText` always true, which was necessary but not sufficient — the
+    /// geometry still said "caret at the start of an empty document", so
+    /// holding delete over remote-owned text deleted exactly one character and
+    /// then went dead, while holding it over text typed on the same line worked
+    /// fine. That is what made the bug read as random.
+    ///
+    /// One character is enough, and one is deliberately all we keep: a longer
+    /// run would give the accelerated "delete by word" mode something to chew
+    /// through, and each of those characters would bill the remote for a
+    /// backspace it never received. Deleting the phantom is indistinguishable
+    /// from the old empty-buffer path — one `deleteBackward()`, one backspace
+    /// byte — and what that byte does is the remote's decision, not ours.
+    ///
+    /// Only ever primes an *empty* buffer, so it cannot shift an offset UIKit
+    /// is still holding onto for real text.
+    func primePhantomInputPrefix() {
+        guard isFirstResponder, _markedTextRange == nil, textInputStorage.isEmpty else { return }
+        textInputStorage = String(TerminalView.phantomInputCharacter)
+        let afterPhantom = TextPosition(offset: textInputStorage.count)
+        _selectedTextRange = TextRange(from: afterPhantom, to: afterPhantom)
+    }
+
+    /// How many backspaces a stretch of the shadow buffer is worth on the remote.
+    ///
+    /// Phantom characters (see ``primePhantomInputPrefix()``) were never sent
+    /// anywhere, so they owe the remote nothing — but a delete that lands
+    /// entirely on them still has to send one, exactly as the old empty-buffer
+    /// path did, or holding delete over remote-owned text goes dead again. An
+    /// empty range still sends nothing: that is an insertion, not a deletion.
+    func remoteBackspaceCount<S: StringProtocol>(for text: S) -> Int {
+        if text.isEmpty { return 0 }
+        return max(1, text.filter { $0 != TerminalView.phantomInputCharacter }.count)
     }
 
     public func unmarkText() {
