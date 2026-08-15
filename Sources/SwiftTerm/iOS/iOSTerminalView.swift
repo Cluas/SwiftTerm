@@ -2762,6 +2762,10 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         terminalDelegate?.clipboardCopy(source: self, content: content)
     }
 
+    public func clipboardRequest(source: Terminal) {
+        terminalDelegate?.clipboardRequest(source: self)
+    }
+
     public func iTermContent (source: Terminal, content: ArraySlice<UInt8>) {
         terminalDelegate?.iTermContent(source: self, content: content)
     }

@@ -88,5 +88,22 @@ public protocol TerminalViewDelegate: AnyObject {
      */
     func rangeChanged (source: TerminalView, startY: Int, endY: Int)
 
+    /**
+     * This method is invoked when the client application has issued a
+     * OSC 52 read query (`ESC ] 52 ; c ; ?`) asking for the clipboard's
+     * content. Answer (or refuse) through
+     * `source.getTerminal().sendClipboardResponse(content:)` — empty
+     * content is the conventional refusal. The default implementation
+     * does nothing, leaving the query unanswered.
+     */
+    func clipboardRequest (source: TerminalView)
+
+}
+
+public extension TerminalViewDelegate {
+    // Default no-op so existing adopters keep compiling; hosts that want
+    // to answer OSC 52 read queries override it.
+    func clipboardRequest (source: TerminalView) {
+    }
 }
 #endif

@@ -200,6 +200,19 @@ public protocol TerminalDelegate: AnyObject {
      * The default implementation does nothing.
      */
     func clipboardCopy(source: Terminal, content: Data)
+
+    /**
+     * This method is invoked when the client application has issued a
+     * OSC 52 read query (`ESC ] 52 ; c ; ?`) asking for the clipboard's
+     * content. The host decides whether to honor it and answers through
+     * ``Terminal/sendClipboardResponse(content:)`` — answering with empty
+     * content is the conventional refusal.
+     *
+     * The default implementation does nothing (the query goes unanswered).
+     * - Parameters:
+     *  - source: identifies the instance of the terminal that sent this request
+     */
+    func clipboardRequest(source: Terminal)
     
     /**
      * Invoked when client application issues OSC 777 to show notification.
@@ -1811,7 +1824,8 @@ open class Terminal {
 
     // Copy to clipboard with sequence on the form:
     //    ESC ] 52 ; c ; [base64 data] \a
-    // where c is for copy and the only thing supported.
+    // where c is for copy and the only thing supported. A payload of `?`
+    // is the read query: the application is asking FOR the clipboard.
     func oscClipboard (_ data: ArraySlice<UInt8>) {
         // we require data to start with c; followed by base64 content
         guard data.count >= 2,
@@ -1819,13 +1833,34 @@ open class Terminal {
               data[data.startIndex+1] == UInt8(ascii: ";") else {
             return
         }
-        
-        let base64 = Data(data[(data.startIndex+2)...])
+
+        let payload = data[(data.startIndex+2)...]
+        // ESC ] 52 ; c ; ? — a read query, routed through the delegate
+        // rather than answered here: a remote program silently reading the
+        // local clipboard is an exfiltration channel unless the host has
+        // decided otherwise. The host answers (or refuses) via
+        // `sendClipboardResponse`.
+        if payload.count == 1, payload[payload.startIndex] == UInt8(ascii: "?") {
+            tdel?.clipboardRequest(source: self)
+            return
+        }
+
+        let base64 = Data(payload)
         guard let content = Data(base64Encoded: base64) else {
             return
         }
-        
+
         tdel?.clipboardCopy(source: self, content: content)
+    }
+
+    /// Answer an OSC 52 read query (`ESC ] 52 ; c ; ?`) from the
+    /// application: sends `ESC ] 52 ; c ; <base64> ESC \` back to the
+    /// backend. Pass nil or empty content to answer with an empty
+    /// clipboard — the conventional refusal, which unblocks an application
+    /// waiting on the reply without giving it anything.
+    public func sendClipboardResponse (content: Data?) {
+        let base64 = (content ?? Data()).base64EncodedString()
+        sendResponse (text: "\u{1b}]52;c;\(base64)\u{1b}\\")
     }
     
     // Notifications:
@@ -6815,7 +6850,10 @@ public extension TerminalDelegate {
     
     func clipboardCopy(source: Terminal, content: Data) {
     }
-    
+
+    func clipboardRequest(source: Terminal) {
+    }
+
     func notify(source: Terminal, title: String, body: String) {
     }
 
