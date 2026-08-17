@@ -607,7 +607,19 @@ extension TerminalView {
         }
 
         while col < cols {
-            let ch: CharData = line[col]
+            var ch: CharData = line[col]
+            if ch.width == 0 {
+                // A VISITED zero-width cell is an orphaned fullwidth
+                // continuation: legit stubs are skipped by their lead's
+                // width advance below, so reaching one means its lead was
+                // overwritten and nothing rewrote the stub. Its stored
+                // attribute is the inverted-default sentinel, which paints a
+                // bright one-cell block on a dark theme. Render the default
+                // blank the cell semantically is. (Buffer.insertCharacter /
+                // insertAsciiRun now clear these on the write side; this is
+                // the belt to that suspenders.)
+                ch = CharData.Null
+            }
             let width = max(1, Int(ch.width))
             let attr = ch.attribute
             let hasUrl = shouldUnderlineLink(row: row, column: col, width: width, cell: ch)

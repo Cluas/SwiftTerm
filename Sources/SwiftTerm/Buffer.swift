@@ -1149,10 +1149,26 @@ public final class Buffer {
             let available = right - _x + 1
             let runLen = min(available, bytes.endIndex - idx)
             let row = _lines[_y + _yBase]
+            // Overwriting either half of a fullwidth char must not leave the
+            // other half behind: a run starting on a continuation stub clips
+            // the lead in front of it, and a run ending on a lead orphans the
+            // stub after it. An orphaned stub is not cosmetic — it carries
+            // the inverted-default sentinel attribute and renders as a bright
+            // block, and a screen-diffing peer (mosh) that considers the cell
+            // already-blank will never repaint it.
+            let clipsLead = _x > 0 && row[_x - 1].width == 2
             for i in 0..<runLen {
                 row[_x + i] = CharData(attribute: attribute, code: Int32(bytes[idx + i]), size: 1)
             }
+            if clipsLead {
+                row[_x - 1] = CharData.Null
+            }
             _x += runLen
+            var trail = _x
+            while trail < _cols, row[trail].width == 0 {
+                row[trail] = CharData.Null
+                trail += 1
+            }
             consumed += runLen
             idx += runLen
         }
@@ -1218,6 +1234,7 @@ public final class Buffer {
         if _x >= _cols {
             _x = _cols-1
         }
+        let writeX = _x
         bufferRow[_x] = charData
         _x += 1
 
@@ -1233,7 +1250,25 @@ public final class Buffer {
                 chWidth -= 1
             }
         }
-        
+
+        // Wide-char hygiene for the WRITE side (the read side already has
+        // these fixups; the write side lacked them): overwriting either half
+        // of a fullwidth char must clear the other half.
+        //   - Writing onto a lead's continuation clips the lead at writeX-1.
+        //   - Writing over a lead orphans its continuation stub(s) after the
+        //     newly written cells.
+        // An orphaned stub carries the inverted-default sentinel attribute
+        // and paints as a bright one-cell block — and a screen-diffing peer
+        // (mosh) that models the cell as already-blank never repaints it, so
+        // the block is permanent.
+        if writeX > 0, bufferRow[writeX - 1].width == 2 {
+            bufferRow[writeX - 1] = CharData.Null
+        }
+        var trail = _x
+        while trail < _cols, bufferRow[trail].width == 0 {
+            bufferRow[trail] = CharData.Null
+            trail += 1
+        }
     }
     
     func dumpConsole ()
