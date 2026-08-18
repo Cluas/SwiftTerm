@@ -1160,18 +1160,26 @@ public final class Buffer {
             for i in 0..<runLen {
                 row[_x + i] = CharData(attribute: attribute, code: Int32(bytes[idx + i]), size: 1)
             }
-            // The cleared halves carry the RUN's attribute, not the default:
-            // a diff-rendering application painting a colored region believes
-            // those cells hold its own paint and never repaints them — a
-            // default-attribute fill is a permanent hole in its background
-            // that accumulates with every partial redraw (scrolling).
+            // The cleared halves take ERASE semantics from the run's
+            // attribute — the background only, styles and fg reset (the same
+            // construction as Terminal.eraseAttr, which ECH/EL use). Two
+            // failure modes bracket this choice: a default-attribute fill is
+            // a permanent hole in a diff-rendering application's colored
+            // region (it believes its paint is there and never repaints —
+            // holes accumulate with every partial redraw while scrolling),
+            // and carrying the FULL attribute leaks the inverse flag into
+            // the blank, which renders as the bright block this hygiene
+            // exists to kill (caught by the mosh framebuffer replay).
+            let clearAttr = Attribute(fg: CharData.defaultAttr.fg,
+                                      bg: attribute.bg,
+                                      style: CharData.defaultAttr.style)
             if clipsLead {
-                row[_x - 1] = CharData(attribute: attribute)
+                row[_x - 1] = CharData(attribute: clearAttr)
             }
             _x += runLen
             var trail = _x
             while trail < _cols, row[trail].width == 0 {
-                row[trail] = CharData(attribute: attribute)
+                row[trail] = CharData(attribute: clearAttr)
                 trail += 1
             }
             consumed += runLen
@@ -1266,15 +1274,19 @@ public final class Buffer {
         // and paints as a bright one-cell block — and a screen-diffing peer
         // (mosh) that models the cell as already-blank never repaints it, so
         // the block is permanent.
-        // As in insertAsciiRun: the cleared halves carry the writer's
-        // attribute (curAttr), not the default — a default-attribute fill is
-        // a permanent hole in a diff-rendering application's colored region.
+        // As in insertAsciiRun: the cleared halves take erase semantics
+        // from the writer's attribute — background only, styles and fg
+        // reset. See the comment there for the two failure modes this
+        // threads between.
+        let clearAttr = Attribute(fg: CharData.defaultAttr.fg,
+                                  bg: curAttr.bg,
+                                  style: CharData.defaultAttr.style)
         if writeX > 0, bufferRow[writeX - 1].width == 2 {
-            bufferRow[writeX - 1] = CharData(attribute: curAttr)
+            bufferRow[writeX - 1] = CharData(attribute: clearAttr)
         }
         var trail = _x
         while trail < _cols, bufferRow[trail].width == 0 {
-            bufferRow[trail] = CharData(attribute: curAttr)
+            bufferRow[trail] = CharData(attribute: clearAttr)
             trail += 1
         }
     }
