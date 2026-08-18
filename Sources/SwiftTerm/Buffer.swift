@@ -1160,13 +1160,18 @@ public final class Buffer {
             for i in 0..<runLen {
                 row[_x + i] = CharData(attribute: attribute, code: Int32(bytes[idx + i]), size: 1)
             }
+            // The cleared halves carry the RUN's attribute, not the default:
+            // a diff-rendering application painting a colored region believes
+            // those cells hold its own paint and never repaints them — a
+            // default-attribute fill is a permanent hole in its background
+            // that accumulates with every partial redraw (scrolling).
             if clipsLead {
-                row[_x - 1] = CharData.Null
+                row[_x - 1] = CharData(attribute: attribute)
             }
             _x += runLen
             var trail = _x
             while trail < _cols, row[trail].width == 0 {
-                row[trail] = CharData.Null
+                row[trail] = CharData(attribute: attribute)
                 trail += 1
             }
             consumed += runLen
@@ -1261,12 +1266,15 @@ public final class Buffer {
         // and paints as a bright one-cell block — and a screen-diffing peer
         // (mosh) that models the cell as already-blank never repaints it, so
         // the block is permanent.
+        // As in insertAsciiRun: the cleared halves carry the writer's
+        // attribute (curAttr), not the default — a default-attribute fill is
+        // a permanent hole in a diff-rendering application's colored region.
         if writeX > 0, bufferRow[writeX - 1].width == 2 {
-            bufferRow[writeX - 1] = CharData.Null
+            bufferRow[writeX - 1] = CharData(attribute: curAttr)
         }
         var trail = _x
         while trail < _cols, bufferRow[trail].width == 0 {
-            bufferRow[trail] = CharData.Null
+            bufferRow[trail] = CharData(attribute: curAttr)
             trail += 1
         }
     }
