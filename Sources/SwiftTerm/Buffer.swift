@@ -1170,8 +1170,13 @@ public final class Buffer {
             // and carrying the FULL attribute leaks the inverse flag into
             // the blank, which renders as the bright block this hygiene
             // exists to kill (caught by the mosh framebuffer replay).
+            // Never a sentinel: SGR 7 models inverse by swapping in
+            // .defaultInvertedColor, and an erased blank carrying it renders
+            // as the bright block again. Real erases are never inverted.
+            let clearBg = attribute.bg == .defaultInvertedColor
+                ? Attribute.Color.defaultColor : attribute.bg
             let clearAttr = Attribute(fg: CharData.defaultAttr.fg,
-                                      bg: attribute.bg,
+                                      bg: clearBg,
                                       style: CharData.defaultAttr.style)
             if clipsLead {
                 row[_x - 1] = CharData(attribute: clearAttr)
@@ -1278,8 +1283,10 @@ public final class Buffer {
         // from the writer's attribute — background only, styles and fg
         // reset. See the comment there for the two failure modes this
         // threads between.
+        let clearBg = curAttr.bg == .defaultInvertedColor
+            ? Attribute.Color.defaultColor : curAttr.bg
         let clearAttr = Attribute(fg: CharData.defaultAttr.fg,
-                                  bg: curAttr.bg,
+                                  bg: clearBg,
                                   style: CharData.defaultAttr.style)
         if writeX > 0, bufferRow[writeX - 1].width == 2 {
             bufferRow[writeX - 1] = CharData(attribute: clearAttr)

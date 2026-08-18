@@ -52,6 +52,20 @@ final class WideCharHygieneTests: TerminalDelegate {
                 "the clipped lead carries the overwriting write's paint, not the default background")
     }
 
+    /// A reverse-video write over a wide char must NOT leave an inverted
+    /// blank — SwiftTerm models SGR 7 with the .defaultInvertedColor
+    /// sentinel, and a cleared half carrying it renders as the bright block
+    /// this hygiene exists to kill (caught by the mosh framebuffer replay).
+    @Test func inverseWriterLeavesPlainBlank() {
+        let t = Terminal(delegate: self, options: TerminalOptions(cols: 20, rows: 4))
+        t.feed(text: "AB中CD")
+        t.feed(text: "\u{1b}[1;3H\u{1b}[7mX\u{1b}[0m")   // inverse X over the lead
+        let stub = cell(t, 3, 0)
+        #expect(stub.width == 1)
+        #expect(stub.attribute.bg == Attribute.Color.defaultColor,
+                "the cleared half must not inherit the inverse sentinel")
+    }
+
     /// The ASCII fast path takes the same care: a run written over a lead's
     /// continuation clips the lead with the run's attribute.
     @Test func asciiRunClipsWithRunAttribute() {
