@@ -3556,6 +3556,25 @@ open class Terminal {
     {
         cmdSoftReset()
     }
+
+    /// Discards partially-accumulated INPUT state: an incomplete UTF-8
+    /// sequence held back for the next feed, and any escape/CSI/OSC/DCS
+    /// sequence the parser is midway through.
+    ///
+    /// For hosts that reuse one Terminal across transport reconnects: the
+    /// dead connection's stream can end mid-character or mid-sequence, and
+    /// without this the fresh connection's first bytes are parsed as the
+    /// dead stream's continuation — a dangling OSC silently consumes
+    /// everything up to the next terminator. Unlike `resetToInitialState`
+    /// or `softReset`, this touches nothing the user can see: screen,
+    /// scrollback, modes and cursor all stay put; only unfinished input is
+    /// forgotten.
+    public func discardPendingInput ()
+    {
+        // parser.reset() also fires the printStateReset hook, which clears
+        // the reading buffer's UTF-8 putback bytes.
+        parser.reset ()
+    }
     
     //
     // CSI Ps n  Device Status Report (DSR).
