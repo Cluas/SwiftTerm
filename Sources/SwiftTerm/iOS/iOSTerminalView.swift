@@ -625,6 +625,22 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         contextMenuVisible = true
     }
 
+    /// Dismiss an active selection completely: highlight, drag gesture and
+    /// copy menu. Public because a host that owns its own tap gestures (see
+    /// `focusOnTap`) needs "tap anywhere clears the selection" to work
+    /// WITHOUT first responder — the built-in clear lived only in
+    /// `singleTap`'s focused branch, so with the keyboard down a selection
+    /// could never be dismissed at all.
+    public func closeSelection() {
+        // selectNone() flips `active` and fires selectionChanged, whose
+        // handler already hides the menu and removes the drag gesture — the
+        // explicit calls below are belt for hosts whose delegate differs.
+        selection.selectNone()
+        disableSelectionPanGesture()
+        hideContextMenu()
+        queuePendingDisplay()
+    }
+
     /// Hide the copy/paste menu, whichever API put it up.
     func hideContextMenu() {
         if #available(iOS 16.0, *) {
