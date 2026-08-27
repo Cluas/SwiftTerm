@@ -586,22 +586,53 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     ///  - region: This is the location that we want to avoid having the menu being shown
     ///  - pos: the location where this was triggered in the buffer, it used at a later point
     ///  to auto-select a word
+    /// Whether the copy/paste menu is currently up. Tracked here because
+    /// UIEditMenuInteraction has no visibility getter the way
+    /// UIMenuController did.
+    var contextMenuVisible = false
+    /// The UIEditMenuInteraction host (typed Any so the stored property does
+    /// not constrain the deployment target).
+    var editMenuInteractionStorage: Any? = nil
+
+    @available(iOS 16.0, *)
+    func ensureEditMenuInteraction() -> UIEditMenuInteraction {
+        if let existing = editMenuInteractionStorage as? UIEditMenuInteraction { return existing }
+        let interaction = UIEditMenuInteraction(delegate: self)
+        addInteraction(interaction)
+        editMenuInteractionStorage = interaction
+        return interaction
+    }
+
     func showContextMenu (forRegion: CGRect, pos: Position) {
-        var items: [UIMenuItem] = []
-        
         lastLongSelect = pos
         lastLongSelectRegion = forRegion
 
-        //GAR: Declutter context menu
-        //items.append (UIMenuItem(title: "Reset", action: #selector(resetCmd)))
-        
-        // Configure the shared menu controller
-        let menuController = UIMenuController.shared
-        menuController.menuItems = items
-        
-        // Set the location of the menu in the view.
-        //let menuLocation = CGRect (origin: at, size: CGSize (width: cellDimension.width, height: cellDimension.height))
-        menuController.showMenu(from: self, rect: forRegion)
+        if #available(iOS 16.0, *) {
+            // UIEditMenuInteraction, unlike UIMenuController, does not demand
+            // first responder — and on iOS focus IS the software keyboard, so
+            // a host that keeps the terminal unfocused while the user reads
+            // (and selects, and copies) could never show the old menu at all:
+            // double-tap selected the word, then nothing appeared.
+            let config = UIEditMenuConfiguration(
+                identifier: nil,
+                sourcePoint: CGPoint(x: forRegion.midX, y: forRegion.minY))
+            ensureEditMenuInteraction().presentEditMenu(with: config)
+        } else {
+            let menuController = UIMenuController.shared
+            menuController.menuItems = []
+            menuController.showMenu(from: self, rect: forRegion)
+        }
+        contextMenuVisible = true
+    }
+
+    /// Hide the copy/paste menu, whichever API put it up.
+    func hideContextMenu() {
+        if #available(iOS 16.0, *) {
+            (editMenuInteractionStorage as? UIEditMenuInteraction)?.dismissMenu()
+        } else {
+            UIMenuController.shared.hideMenu()
+        }
+        contextMenuVisible = false
     }
     
     // This is a position relative to the buffer
@@ -747,8 +778,8 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
                     selection.selectNone()
                     disableSelectionPanGesture()
                 }
-                if UIMenuController.shared.isMenuVisible {
-                    UIMenuController.shared.hideMenu()
+                if contextMenuVisible {
+                    hideContextMenu()
                 } else {
                     let location = gestureRecognizer.location(in: gestureRecognizer.view)
                     let tapLoc = calculateTapHit(gesture: gestureRecognizer).grid
@@ -960,9 +991,25 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     var panStart: Position?
     var panTask: Task<(),Never>?
     
+    /// How many cells around a selection endpoint count as "grabbing the
+    /// handle", derived from the cell size so the target is FINGER-sized
+    /// rather than cell-sized: the old fixed 3×2-cell window shrank with the
+    /// font — under a 9pt terminal font that is ~16pt, a third of the 44pt
+    /// HIG minimum touch target — so dragging a handle usually missed it and
+    /// re-anchored the selection from the old pivot instead ("拖动有问题").
+    /// 22pt = half the HIG target: two endpoints can sit fairly close
+    /// together before their grab zones overlap.
+    public static func selectionHandleTolerance(cellWidth: CGFloat, cellHeight: CGFloat) -> (cols: Int, rows: Int) {
+        let target: CGFloat = 22
+        return (cols: max(3, Int((target / max(cellWidth, 1)).rounded())),
+                rows: max(2, Int((target / max(cellHeight, 1)).rounded())))
+    }
+
     @objc func panSelectionHandler (_ gestureRecognizer: UIPanGestureRecognizer) {
+        let tolerance = Self.selectionHandleTolerance(cellWidth: cellDimension.width,
+                                                      cellHeight: cellDimension.height)
         func near (_ pos1: Position, _ pos2: Position) -> Bool {
-            return abs (pos1.col-pos2.col) < 3 && abs (pos1.row-pos2.row) < 2
+            return abs (pos1.col-pos2.col) <= tolerance.cols && abs (pos1.row-pos2.row) <= tolerance.rows
         }
         
         switch gestureRecognizer.state {
@@ -2708,7 +2755,7 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
 #endif
             
             if !self.selection.active {
-                UIMenuController.shared.hideMenu()
+                self.hideContextMenu()
                 self.selection.selectNone()
                 self.disableSelectionPanGesture()
             }
@@ -2810,5 +2857,26 @@ extension TerminalViewDelegate {
     }
 }
 #endif
+
+
+// MARK: - Edit menu (iOS 16+) delegate
+
+@available(iOS 16.0, *)
+extension TerminalView: UIEditMenuInteractionDelegate {
+    public func editMenuInteraction(_ interaction: UIEditMenuInteraction,
+                                    menuFor configuration: UIEditMenuConfiguration,
+                                    suggestedActions: [UIMenuElement]) -> UIMenu? {
+        // The suggested actions are the standard edit commands, already
+        // filtered through this view's canPerformAction(_:withSender:) — the
+        // same source of truth the old UIMenuController consulted.
+        UIMenu(children: suggestedActions)
+    }
+
+    public func editMenuInteraction(_ interaction: UIEditMenuInteraction,
+                                    willDismissMenuFor configuration: UIEditMenuConfiguration,
+                                    animator: any UIEditMenuInteractionAnimating) {
+        contextMenuVisible = false
+    }
+}
 
 #endif
