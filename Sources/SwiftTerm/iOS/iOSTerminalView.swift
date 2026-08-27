@@ -672,14 +672,35 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     
     @objc func longPress (_ gestureRecognizer: UILongPressGestureRecognizer)
     {
-         if gestureRecognizer.state == .began {
-             let _ = self.becomeFirstResponder()
-             let tapLocation = gestureRecognizer.location(in: gestureRecognizer.view)
-             let tapRegion = makeContextMenuRegionForTap (point: tapLocation)
-             
-             showContextMenu (forRegion: tapRegion,
-                              pos: calculateTapHit (gesture: gestureRecognizer).grid)
-          }
+        // Long-press means "select this", the platform convention for text —
+        // not "give me the keyboard". The old handler grabbed first responder
+        // (on iOS, the software keyboard) and offered a bare paste menu with
+        // no selection; paste stays reachable because the edit menu shown
+        // over the selection offers it, as it always did.
+        let hit = calculateTapHit(gesture: gestureRecognizer).grid
+        switch gestureRecognizer.state {
+        case .began:
+            selection.selectWordOrExpression(at: hit, in: terminal.displayBuffer)
+            selection.selectionMode = .character
+            enableSelectionPanGesture()
+            queuePendingDisplay()
+        case .changed:
+            // Finger still down, sliding: extend from the word, the way iOS
+            // text selection behaves.
+            if selection.active {
+                if selection.pivot == nil {
+                    selection.pivot = selection.start
+                }
+                selection.pivotExtend(bufferPosition: hit)
+                queuePendingDisplay()
+            }
+        case .ended:
+            if selection.active {
+                showContextMenu(forRegion: makeContextMenuRegionForSelection(), pos: hit)
+            }
+        default:
+            break
+        }
     }
     
     /// This controls whether the backspace should send ^? or ^H, the default is ^?
