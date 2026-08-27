@@ -142,6 +142,18 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
      */
     public var allowMouseReporting: Bool = true
 
+    /// Whether a tap on an unfocused terminal grabs first responder — and with
+    /// it, the software keyboard. Defaults to true, the historical behavior.
+    ///
+    /// A host app that offers its own explicit keyboard affordance sets this
+    /// false so a tap is only ever a tap: links still open (singleTap already
+    /// opens them without focusing), double-tap selection and mouse reporting
+    /// are unaffected, and focus moves only when the host calls
+    /// `becomeFirstResponder()` itself. On iOS focus IS the keyboard, and
+    /// "reading a terminal" is a first-class activity that a summoned keyboard
+    /// interrupts.
+    public var focusOnTap: Bool = true
+
     /// Controls how link tracking resolves hovered links:
     /// `.explicit` = OSC 8 only, `.implicit` = explicit + implicit fallback, `.none` = off.
     public var linkReporting: LinkReporting = .implicit
@@ -770,7 +782,9 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
                     return
                 }
             }
-            let _ = becomeFirstResponder ()
+            if focusOnTap {
+                let _ = becomeFirstResponder ()
+            }
         }
     }
     
