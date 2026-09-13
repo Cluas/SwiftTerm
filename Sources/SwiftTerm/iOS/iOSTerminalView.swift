@@ -1505,10 +1505,68 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         let displayBuffer = terminal.displayBuffer
         contentSize = CGSize (width: CGFloat (displayBuffer.cols) * cellDimension.width,
                               height: CGFloat (displayBuffer.lines.count) * cellDimension.height)
-        //contentOffset = CGPoint (x: 0, y: CGFloat (displayBuffer.lines.count-displayBuffer.rows)*cellDimension.height)
-        contentOffset = CGPoint (x: 0, y: CGFloat (displayBuffer.lines.count-displayBuffer.rows)*cellDimension.height)
+        // `drawTerminalContents` picks the rows to draw from `contentOffset`, so the
+        // offset must follow the emulator's viewport row: contentOffset.y == yDisp *
+        // cellHeight. This used to pin the offset to the LAST screen instead, which
+        // meant every `scrollUp`/`scrollDown` moved `yDisp` while the pixels stayed
+        // put — programmatic scrollback paging was invisible on iOS.
+        //
+        // Only realign when the offset's row disagrees with `yDisp`: a host that
+        // scrolls by pixels (see `scrollViewport(by:)`) keeps its sub-row offset.
+        guard cellDimension.height > 0 else { return }
+        let viewportRow = Int(floor(contentOffset.y / cellDimension.height))
+        if viewportRow != displayBuffer.yDisp || contentOffset.x != 0 {
+            contentOffset = CGPoint (x: 0, y: CGFloat (displayBuffer.yDisp) * cellDimension.height)
+        }
         //Xscroller.doubleValue = scrollPosition
         //Xscroller.knobProportion = scrollThumbsize
+    }
+
+    /// Height of one text row in points — the unit a host uses to turn finger
+    /// travel into rows.
+    public var cellHeight: CGFloat { cellDimension.height }
+
+    /// Points between the viewport and the newest row of the scrollback:
+    /// 0 when the live bottom is on screen, positive while reading history.
+    public var distanceToBottom: CGFloat {
+        let displayBuffer = terminal.displayBuffer
+        let maxOffset = CGFloat(max(0, displayBuffer.lines.count - displayBuffer.rows)) * cellDimension.height
+        return max(0, maxOffset - contentOffset.y)
+    }
+
+    /// Move the viewport `dy` points through the scrollback — positive pulls
+    /// OLDER output into view (the content follows a finger dragging down),
+    /// negative moves toward the live bottom. Clamped to the buffer; returns
+    /// the distance actually travelled so a host-driven fling can stop at the
+    /// edges. Sub-row offsets are kept: rows are drawn straight from
+    /// `contentOffset`, and `yDisp` follows it (see `syncViewportRow`).
+    @discardableResult
+    public func scrollViewport (by dy: CGFloat) -> CGFloat {
+        let displayBuffer = terminal.displayBuffer
+        guard !terminal.isDisplayBufferAlternate, cellDimension.height > 0, dy != 0 else { return 0 }
+        let maxOffset = CGFloat(max(0, displayBuffer.lines.count - displayBuffer.rows)) * cellDimension.height
+        let current = contentOffset.y
+        let target = min(maxOffset, max(0, current - dy))
+        guard target != current else { return 0 }
+        contentOffset = CGPoint (x: 0, y: target)
+        return current - target
+    }
+
+    /// Mirror the scroll view's offset into the emulator's viewport row so the
+    /// caret, `scrollPosition`, `canScroll` and tap hit-testing agree with the
+    /// pixels on screen. The offset is the source of truth for what is drawn
+    /// (`drawTerminalContents`), whether it moved by a programmatic
+    /// `scrollTo(row:)` (which sets it through `updateScroller`) or by a host
+    /// dragging it a few points at a time.
+    private func syncViewportRow () {
+        guard didFinishSetup, cellDimension.height > 0 else { return }
+        let displayBuffer = terminal.displayBuffer
+        let maxRow = max(0, displayBuffer.lines.count - displayBuffer.rows)
+        let row = min(maxRow, max(0, Int(floor(contentOffset.y / cellDimension.height))))
+        guard row != displayBuffer.yDisp else { return }
+        terminal.setViewYDisp (row)
+        updateCursorPosition()
+        terminalDelegate?.scrolled(source: self, position: scrollPosition)
     }
 
 #if canImport(MetalKit)
@@ -1611,6 +1669,7 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
 
     open override var contentOffset: CGPoint {
         didSet {
+            syncViewportRow()
 #if canImport(MetalKit)
             if useMetalRenderer, metalView != nil {
                 requestMetalDisplay()
