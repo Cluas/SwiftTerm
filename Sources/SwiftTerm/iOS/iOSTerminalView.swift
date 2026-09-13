@@ -1538,16 +1538,30 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     /// Move the viewport `dy` points through the scrollback — positive pulls
     /// OLDER output into view (the content follows a finger dragging down),
     /// negative moves toward the live bottom. Clamped to the buffer; returns
-    /// the distance actually travelled so a host-driven fling can stop at the
-    /// edges. Sub-row offsets are kept: rows are drawn straight from
-    /// `contentOffset`, and `yDisp` follows it (see `syncViewportRow`).
+    /// the distance actually travelled (0 at an edge). Sub-row offsets are
+    /// kept: rows are drawn straight from `contentOffset`, and `yDisp` follows
+    /// it (see `syncViewportRow`).
+    ///
+    /// The offset is snapped to the device pixel grid. Every offset redraws the
+    /// rows (`layoutSubviews` → `setNeedsDisplay`), and a fractional-pixel
+    /// offset rasterises each glyph differently from one frame to the next —
+    /// text that shimmers under the finger. Real touches deliver fractional
+    /// points; the simulator's synthetic ones are whole, which is why it never
+    /// showed there. UIScrollView aligns the offsets it drives the same way.
+    /// The two edges are exempt: `maxOffset` is the row-aligned live bottom the
+    /// dock lands on, and landing a third of a pixel short of it would put
+    /// `yDisp` one row up.
     @discardableResult
     public func scrollViewport (by dy: CGFloat) -> CGFloat {
         let displayBuffer = terminal.displayBuffer
         guard !terminal.isDisplayBufferAlternate, cellDimension.height > 0, dy != 0 else { return 0 }
         let maxOffset = CGFloat(max(0, displayBuffer.lines.count - displayBuffer.rows)) * cellDimension.height
         let current = contentOffset.y
-        let target = min(maxOffset, max(0, current - dy))
+        var target = min(maxOffset, max(0, current - dy))
+        if target > 0, target < maxOffset {
+            let scale = max(1, contentScaleFactor)
+            target = min(maxOffset, max(0, (target * scale).rounded() / scale))
+        }
         guard target != current else { return 0 }
         contentOffset = CGPoint (x: 0, y: target)
         syncViewportRow()
