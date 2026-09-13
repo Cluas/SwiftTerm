@@ -787,6 +787,7 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         let bottomVisibleLine = (topVisibleLine+frame.height/cellDimension.height)-1
         let lines = self.terminal.displayBuffer.lines.count
         contentOffset.y = max(0, CGFloat(lines) - bottomVisibleLine) * cellDimension.height
+        syncViewportRow()
     }
     
     @objc func singleTap (_ gestureRecognizer: UITapGestureRecognizer)
@@ -1549,15 +1550,19 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         let target = min(maxOffset, max(0, current - dy))
         guard target != current else { return 0 }
         contentOffset = CGPoint (x: 0, y: target)
+        syncViewportRow()
         return current - target
     }
 
     /// Mirror the scroll view's offset into the emulator's viewport row so the
     /// caret, `scrollPosition`, `canScroll` and tap hit-testing agree with the
-    /// pixels on screen. The offset is the source of truth for what is drawn
-    /// (`drawTerminalContents`), whether it moved by a programmatic
-    /// `scrollTo(row:)` (which sets it through `updateScroller`) or by a host
-    /// dragging it a few points at a time.
+    /// pixels on screen. Called explicitly after the offset is moved by a
+    /// host (`scrollViewport(by:)`, `ensureCaretIsVisible`,
+    /// `repositionVisibleFrame`) — never from the `contentOffset` observer:
+    /// UIKit rewrites the offset on its own (a `contentSize` change, a layout
+    /// pass, a set from the feed thread that lands later), and an observer
+    /// that wrote those transients back into `yDisp` could reset a scrolled
+    /// emulator to row 0 mid-burst.
     private func syncViewportRow () {
         guard didFinishSetup, cellDimension.height > 0 else { return }
         let displayBuffer = terminal.displayBuffer
@@ -1640,6 +1645,13 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         super.layoutSubviews()
         guard didFinishSetup else { return }
 
+        // UIKit may have rewritten the offset on its own (a contentSize change
+        // or a layout normalisation). The emulator's yDisp is the truth for
+        // which rows belong on screen: put the offset back on that row before
+        // the draw below reads it. A host mid-drag keeps offset and yDisp on
+        // the same row (`syncViewportRow`), so this never fights a finger.
+        updateScroller()
+
         let currentBounds = bounds
         let sizeChanged = currentBounds.size != lastLayoutBounds.size
         let originChanged = currentBounds.origin != lastLayoutBounds.origin
@@ -1669,7 +1681,6 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
 
     open override var contentOffset: CGPoint {
         didSet {
-            syncViewportRow()
 #if canImport(MetalKit)
             if useMetalRenderer, metalView != nil {
                 requestMetalDisplay()
@@ -2302,6 +2313,7 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     {
         let displayBuffer = terminal.displayBuffer
         contentOffset = CGPoint (x: 0, y: CGFloat (displayBuffer.lines.count-displayBuffer.rows)*cellDimension.height)
+        syncViewportRow()
     }
     
     public func deleteBackward() {
