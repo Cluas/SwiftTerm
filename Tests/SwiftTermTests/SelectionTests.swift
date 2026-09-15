@@ -102,6 +102,36 @@ final class SelectionTests: TerminalDelegate {
         #expect(text.hasSuffix("doc"))
     }
 
+    /// tmux's `capture-pane -e` re-emits a hyperlink with an id of its own,
+    /// while the live stream carries the program's (here: none) — after a
+    /// repaint the two rows of one link differ in everything but the URL.
+    @Test func testRowsLinkedWithDifferentIdsAreStillOneLink() {
+        let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 20, rows: 3))
+        let selection = SelectionService(terminal: terminal)
+        let url = "https://x.y/abcdefghijkl"
+        let close = "\u{1b}]8;;\u{1b}\\"
+        terminal.feed(text: "\u{1b}]8;;\(url)\u{1b}\\https://x.y/abcdefgh" + close
+                      + "\r\n  \u{1b}]8;id=128g0ok;\(url)\u{1b}\\ijkl" + close)
+
+        selection.selectWordOrExpression(at: Position(col: 3, row: 1), in: terminal.buffer)
+        #expect(selection.start == Position(col: 0, row: 0))
+        #expect(selection.getSelectedText() == url)
+    }
+
+    /// A drag that starts on the indent before an indented link and ends on
+    /// the blanks after it still copies the address.
+    @Test func testDragOverAnIndentedWrappedLinkCopiesTheAddress() {
+        let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 20, rows: 3))
+        let selection = SelectionService(terminal: terminal)
+        let url = "https://x.y/abcdefghijkl"
+        terminal.feed(text: "  ")
+        feedWrappedLink(terminal, url: url, rows: ["https://x.y/abcdef", "ghijkl"])
+
+        selection.setSoftStart(row: 0, col: 0)
+        selection.shiftExtend(row: 1, col: 12)
+        #expect(selection.getSelectedText() == url)
+    }
+
     @Test func testSelectionReachingPastTheLinkCopiesRowsAsTheyAre() {
         let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 20, rows: 3))
         let selection = SelectionService(terminal: terminal)

@@ -560,18 +560,49 @@ class SelectionService: CustomDebugStringConvertible {
     /// wrapped URL is. A wrapped prose label keeps its rows: there the break
     /// stands for a space, and the target would not contain the joined text.
     private func linkTextWithoutWraps (_ text: String, from min: Position, to max: Position) -> String? {
-        guard min.row != max.row, text.contains("\n"),
-              let span = terminal.explicitLinkSpan(at: min, in: terminal.displayBuffer),
-              Position.compare(span.start, min) != .after,
-              Position.compare(max, span.end) != .after else {
+        guard min.row != max.row, text.contains("\n") else {
+            return nil
+        }
+        // The selection may start on the indent before the link and end on
+        // the blanks after it (a drag rarely lands on the exact cells), so
+        // the link is looked up from the first linked cell inside it, and
+        // "inside one link" is judged on the cells that have content.
+        let buffer = terminal.displayBuffer
+        let cells = selectedCells(from: min, to: max, in: buffer)
+        guard let anchor = cells.first(where: { buffer.getChar(atBufferRelative: $0).hasPayload }),
+              let span = terminal.explicitLinkSpan(at: anchor, in: buffer),
+              let lastContent = cells.last(where: { !isBlank($0, in: buffer) }),
+              Position.compare(span.start, anchor) != .after,
+              Position.compare(lastContent, span.end) == .before else {
             return nil
         }
         var body = Substring(text)
         while body.last == "\n" { body.removeLast() }
-        let joined = body.split(separator: "\n", omittingEmptySubsequences: false).enumerated().map { index, row in
-            index == 0 ? String(row) : String(row.drop(while: { $0 == " " }))
+        let joined = body.split(separator: "\n", omittingEmptySubsequences: false).map { row in
+            String(row.drop(while: { $0 == " " }))
         }.joined()
         return span.url.contains(joined) ? joined : nil
+    }
+
+    /// Every cell of the selection in reading order; `max` is exclusive.
+    private func selectedCells (from min: Position, to max: Position, in buffer: Buffer) -> [Position] {
+        var cells: [Position] = []
+        for row in min.row...max.row {
+            let first = row == min.row ? min.col : 0
+            let last = row == max.row ? max.col : terminal.cols
+            guard first < last else { continue }
+            for col in first..<last {
+                cells.append(Position(col: col, row: row))
+            }
+        }
+        return cells
+    }
+
+    private func isBlank (_ position: Position, in buffer: Buffer) -> Bool {
+        let cell = buffer.getChar(atBufferRelative: position)
+        guard !cell.hasPayload else { return false }
+        let ch = terminal.getCharacter(for: cell)
+        return ch == " " || ch == nullChar
     }
     
     public var debugDescription: String {

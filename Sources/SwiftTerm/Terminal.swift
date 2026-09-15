@@ -6116,32 +6116,34 @@ open class Terminal {
     /// the reader sees one. `end` is exclusive, as selection endpoints are.
     func explicitLinkSpan(at position: Position, in buffer: Buffer) -> (start: Position, end: Position, url: String)?
     {
-        guard let first = explicitLinkMatch(at: position, in: buffer),
-              let payload = buffer.lines[first.row][first.range.lowerBound].getPayload() as? String else {
+        guard let first = explicitLinkMatch(at: position, in: buffer) else {
             return nil
         }
-        // Rows are compared by payload STRING, not atom: every OSC 8 open
-        // (and every host tag) interns its own atom, so the same link
-        // re-opened on the next row has a different code for equal text.
+        // Rows are compared by the link's URL — not by atom (every OSC 8
+        // open and every host tag interns its own), and not by the whole
+        // payload either: tmux's `capture-pane -e` re-emits a hyperlink with
+        // an id of its own making, so after a repaint one row can read
+        // `id=…;url` while the next, painted live, reads `;url`.
+        let url = first.text
         var startRow = first.row
         var startCol = first.range.lowerBound
         var endRow = first.row
         var endCol = first.range.upperBound
-        while startRow > 0, let run = payloadRun(payload, row: startRow - 1, fromTrailingEdge: true, in: buffer) {
+        while startRow > 0, let run = linkRun(to: url, row: startRow - 1, fromTrailingEdge: true, in: buffer) {
             startRow -= 1
             startCol = run.lowerBound
         }
-        while endRow + 1 < buffer.lines.count, let run = payloadRun(payload, row: endRow + 1, fromTrailingEdge: false, in: buffer) {
+        while endRow + 1 < buffer.lines.count, let run = linkRun(to: url, row: endRow + 1, fromTrailingEdge: false, in: buffer) {
             endRow += 1
             endCol = run.upperBound
         }
-        return (Position(col: startCol, row: startRow), Position(col: endCol, row: endRow), first.text)
+        return (Position(col: startCol, row: startRow), Position(col: endCol, row: endRow), url)
     }
 
-    /// The run of cells carrying `payload` at one edge of `row` — its first
+    /// The run of cells linking to `url` at one edge of `row` — its first
     /// content cell (leading blanks, such as a continuation indent, skipped)
     /// or its last — or nil when that edge cell is something else.
-    private func payloadRun(_ payload: String, row: Int, fromTrailingEdge: Bool, in buffer: Buffer) -> Range<Int>?
+    private func linkRun(to url: String, row: Int, fromTrailingEdge: Bool, in buffer: Buffer) -> Range<Int>?
     {
         let line = buffer.lines[row]
         let limit = min(cols, line.count)
@@ -6149,7 +6151,10 @@ open class Terminal {
             return nil
         }
         func carries(_ col: Int) -> Bool {
-            (line[col].getPayload() as? String) == payload
+            guard let payload = line[col].getPayload() as? String else {
+                return false
+            }
+            return parseHyperlinkPayload(payload) == url
         }
         func isBlank(_ col: Int) -> Bool {
             let cell = line[col]
