@@ -59,6 +59,62 @@ final class SelectionTests: TerminalDelegate {
         #expect(selection.getSelectedText() == "(abc)")
     }
 
+    /// The shape tmux captured from a real Claude Code transcript: a long
+    /// hyperlink printed as two physical rows, each re-opening the same
+    /// OSC 8 link after the continuation indent.
+    private func feedWrappedLink(_ terminal: Terminal, url: String, rows: [String], indent: String = "  ") {
+        let open = "\u{1b}]8;id=7;\(url)\u{1b}\\"
+        let close = "\u{1b}]8;;\u{1b}\\"
+        var text = ""
+        for (index, row) in rows.enumerated() {
+            if index > 0 { text += "\r\n" + indent }
+            text += open + row + close
+        }
+        terminal.feed(text: text)
+    }
+
+    @Test func testWordSelectionOnWrappedHyperlinkTakesAllOfItAndCopiesTheAddress() {
+        let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 20, rows: 3))
+        let selection = SelectionService(terminal: terminal)
+        let url = "https://x.y/abcdefghijkl"
+        feedWrappedLink(terminal, url: url, rows: ["https://x.y/abcdefgh", "ijkl"])
+
+        selection.selectWordOrExpression(at: Position(col: 5, row: 0), in: terminal.buffer)
+        #expect(selection.start == Position(col: 0, row: 0))
+        #expect(selection.end == Position(col: 6, row: 1), "the continuation row's indent is not part of the link")
+        #expect(selection.getSelectedText() == url, "copying the link yields the address, not the rows")
+
+        selection.selectWordOrExpression(at: Position(col: 3, row: 1), in: terminal.buffer)
+        #expect(selection.start == Position(col: 0, row: 0), "from the continuation row the same link is selected")
+        #expect(selection.getSelectedText() == url)
+    }
+
+    @Test func testWrappedHyperlinkLabelKeepsItsRowBreak() {
+        let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 20, rows: 3))
+        let selection = SelectionService(terminal: terminal)
+        feedWrappedLink(terminal, url: "https://x.y/doc", rows: ["Open the", "doc"])
+
+        selection.selectWordOrExpression(at: Position(col: 1, row: 0), in: terminal.buffer)
+        #expect(selection.end.row == 1, "a label is one link across both rows")
+        let text = selection.getSelectedText()
+        #expect(text.hasPrefix("Open the"))
+        #expect(text.contains("\n"), "a prose label's row break stands for a space and stays")
+        #expect(text.hasSuffix("doc"))
+    }
+
+    @Test func testSelectionReachingPastTheLinkCopiesRowsAsTheyAre() {
+        let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 20, rows: 3))
+        let selection = SelectionService(terminal: terminal)
+        feedWrappedLink(terminal, url: "https://x.y/abcdefghijkl", rows: ["https://x.y/abcdefgh", "ijkl"])
+        terminal.feed(text: " tail")
+
+        selection.setSoftStart(row: 0, col: 0)
+        selection.shiftExtend(row: 1, col: 11)
+        let text = selection.getSelectedText()
+        #expect(text.contains("\n"), "prose after the link keeps the selection's real rows")
+        #expect(text.hasSuffix("ijkl tail"))
+    }
+
 #if os(macOS)
     // Test only on macOS due to differences in how frames are handled on mac and iOS
     @Test func testMouseHitCorrectWhenScrolled() {

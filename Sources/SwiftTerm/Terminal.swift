@@ -6108,6 +6108,75 @@ open class Terminal {
         )
     }
 
+    /// The whole extent of the explicit link (OSC 8, or a host-tagged plain
+    /// URL) under `position`, followed onto neighbouring rows that carry the
+    /// same payload: a program that lays out its own text prints a long
+    /// hyperlink as several physical lines, each re-opening the link (often
+    /// after an indent), so per-row matching alone sees several links where
+    /// the reader sees one. `end` is exclusive, as selection endpoints are.
+    func explicitLinkSpan(at position: Position, in buffer: Buffer) -> (start: Position, end: Position, url: String)?
+    {
+        guard let first = explicitLinkMatch(at: position, in: buffer),
+              let payload = buffer.lines[first.row][first.range.lowerBound].getPayload() as? String else {
+            return nil
+        }
+        // Rows are compared by payload STRING, not atom: every OSC 8 open
+        // (and every host tag) interns its own atom, so the same link
+        // re-opened on the next row has a different code for equal text.
+        var startRow = first.row
+        var startCol = first.range.lowerBound
+        var endRow = first.row
+        var endCol = first.range.upperBound
+        while startRow > 0, let run = payloadRun(payload, row: startRow - 1, fromTrailingEdge: true, in: buffer) {
+            startRow -= 1
+            startCol = run.lowerBound
+        }
+        while endRow + 1 < buffer.lines.count, let run = payloadRun(payload, row: endRow + 1, fromTrailingEdge: false, in: buffer) {
+            endRow += 1
+            endCol = run.upperBound
+        }
+        return (Position(col: startCol, row: startRow), Position(col: endCol, row: endRow), first.text)
+    }
+
+    /// The run of cells carrying `payload` at one edge of `row` — its first
+    /// content cell (leading blanks, such as a continuation indent, skipped)
+    /// or its last — or nil when that edge cell is something else.
+    private func payloadRun(_ payload: String, row: Int, fromTrailingEdge: Bool, in buffer: Buffer) -> Range<Int>?
+    {
+        let line = buffer.lines[row]
+        let limit = min(cols, line.count)
+        guard limit > 0 else {
+            return nil
+        }
+        func carries(_ col: Int) -> Bool {
+            (line[col].getPayload() as? String) == payload
+        }
+        func isBlank(_ col: Int) -> Bool {
+            let cell = line[col]
+            guard cell.getPayload() == nil else {
+                return false
+            }
+            let ch = getCharacter(for: cell)
+            return ch == " " || ch == Character(UnicodeScalar(0))
+        }
+        var edge = fromTrailingEdge ? limit - 1 : 0
+        while edge >= 0 && edge < limit && isBlank(edge) {
+            edge += fromTrailingEdge ? -1 : 1
+        }
+        guard edge >= 0, edge < limit, carries(edge) else {
+            return nil
+        }
+        var start = edge
+        while start > 0 && carries(start - 1) {
+            start -= 1
+        }
+        var end = edge + 1
+        while end < limit && carries(end) {
+            end += 1
+        }
+        return start..<end
+    }
+
     private func implicitLinkMatch(at position: Position, in buffer: Buffer) -> LinkMatch?
     {
         guard let lineMap = buildGhosttyImplicitLineMap(at: position, in: buffer) else {

@@ -493,6 +493,16 @@ class SelectionService: CustomDebugStringConvertible {
 //            row: max (min (uncheckedPosition.row, buffer.rows-1+buffer.yDisp), buffer.yDisp))
         let position = Position (col: (min (terminal.cols, max (uncheckedPosition.col, 0))),
                                  row: (max (uncheckedPosition.row, 0)))
+        // A hyperlink is the word: select all of it, across the rows a
+        // program that wraps its own text may have printed it on. Copying
+        // then yields the address, not the fragment under the finger.
+        if let span = terminal.explicitLinkSpan(at: position, in: buffer) {
+            start = span.start
+            end = span.end
+            selectionMode = .word
+            setActiveAndNotify()
+            return
+        }
         switch character (at: position, in: buffer) {
         case Character(UnicodeScalar(0)):
             simpleScanSelection (from: position, in: buffer) { ch in ch == nullChar }
@@ -540,7 +550,28 @@ class SelectionService: CustomDebugStringConvertible {
             (end, start)
         }
         let r = terminal.getDisplayText(start: min, end: max)
-        return r
+        return linkTextWithoutWraps(r, from: min, to: max) ?? r
+    }
+
+    /// A selection lying inside ONE explicit link that a program hard-wrapped
+    /// over several rows copies as the link reads, not as the rows fell: the
+    /// row breaks and the continuation rows' indentation go — provided the
+    /// result is literally part of the link's target, which is what a
+    /// wrapped URL is. A wrapped prose label keeps its rows: there the break
+    /// stands for a space, and the target would not contain the joined text.
+    private func linkTextWithoutWraps (_ text: String, from min: Position, to max: Position) -> String? {
+        guard min.row != max.row, text.contains("\n"),
+              let span = terminal.explicitLinkSpan(at: min, in: terminal.displayBuffer),
+              Position.compare(span.start, min) != .after,
+              Position.compare(max, span.end) != .after else {
+            return nil
+        }
+        var body = Substring(text)
+        while body.last == "\n" { body.removeLast() }
+        let joined = body.split(separator: "\n", omittingEmptySubsequences: false).enumerated().map { index, row in
+            index == 0 ? String(row) : String(row.drop(while: { $0 == " " }))
+        }.joined()
+        return span.url.contains(joined) ? joined : nil
     }
     
     public var debugDescription: String {
