@@ -105,16 +105,26 @@ extension TerminalView: UITextInput {
         return TextRange(from: start, to: end)
     }
 
-    func beginTextInputEdit() {
+    /// Brackets a change to `textInputStorage`. The input delegate hears about
+    /// it only when the change did not come from the input system: telling a
+    /// keyboard that the text changed under it while it is the one changing
+    /// it reads as the user editing behind its back. 豆包's voice input ends
+    /// its session on that — on the first correction it made to text it had
+    /// already streamed in, so a dictated sentence stopped mid-way.
+    /// `force` is for a reset the keyboard did not ask for (Return clearing
+    /// the buffer) even when it happens inside one of its calls.
+    func beginTextInputEdit(force: Bool = false) {
         uitiLog("beginTextInputEdit \(textInputStateDescription())")
+        guard force || inputSystemEditDepth == 0 else { return }
         inputDelegate?.selectionWillChange(self)
         inputDelegate?.textWillChange(self)
     }
 
-    func endTextInputEdit() {
+    func endTextInputEdit(force: Bool = false) {
+        defer { uitiLog("endTextInputEdit \(textInputStateDescription())") }
+        guard force || inputSystemEditDepth == 0 else { return }
         inputDelegate?.textDidChange(self)
         inputDelegate?.selectionDidChange(self)
-        uitiLog("endTextInputEdit \(textInputStateDescription())")
     }
 
     public func text(in range: UITextRange) -> String? {
@@ -131,6 +141,9 @@ extension TerminalView: UITextInput {
     }
     
     public func replace(_ range: UITextRange, withText text: String) {
+        inputSystemEditDepth += 1
+        defer { inputSystemEditDepth -= 1 }
+        phantomReinsertPending = false
         guard let r = range as? TextRange else { return }
 
         guard _markedTextRange == nil else { return }
@@ -195,10 +208,14 @@ extension TerminalView: UITextInput {
             if isSame {
                 return
             }
-            inputDelegate?.selectionWillChange(self)
+            // No selectionWillChange/DidChange here: whoever assigns this IS
+            // the input system (or the space-bar trackpad it drives), and the
+            // input delegate is only for changes it did not make — see
+            // `beginTextInputEdit()`. UIKit sets it on every delete it carries
+            // out for a third-party keyboard (select the two characters before
+            // the caret, delete both, re-insert the first).
             _selectedTextRange = nv
             uitiLog ("selectedTextRange -> \(_selectedTextRange)")
-            inputDelegate?.selectionDidChange(self)
         }
     }
     
@@ -227,7 +244,10 @@ extension TerminalView: UITextInput {
     }
 
     public func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
+        inputSystemEditDepth += 1
+        defer { inputSystemEditDepth -= 1 }
         uitiLog("setMarkedText(\(markedText?.debugDescription ?? "nil"), selectedRange:\(selectedRange)) \(textInputStateDescription())")
+        phantomReinsertPending = false
 
         let rangeToReplace = _markedTextRange ?? _selectedTextRange
         let rangeStartPosition = rangeToReplace.startPosition
@@ -341,13 +361,13 @@ extension TerminalView: UITextInput {
     func resetInputBuffer (_ loc: String = #function)
     {
         uitiLog("resetInputBuffer() from \(loc) \(textInputStateDescription())")
-        beginTextInputEdit()
+        beginTextInputEdit(force: true)
         pendingAutoPeriodDeleteWasSpace = false
         textInputStorage = ""
         _selectedTextRange = TextRange (from: TextPosition(offset: 0), to: TextPosition(offset: 0))
         _markedTextRange = nil
         primePhantomInputPrefix()
-        endTextInputEdit()
+        endTextInputEdit(force: true)
         updateIMECompositionOverlay()
     }
 
@@ -397,7 +417,10 @@ extension TerminalView: UITextInput {
     }
 
     public func unmarkText() {
+        inputSystemEditDepth += 1
+        defer { inputSystemEditDepth -= 1 }
         uitiLog("unmarkText() \(textInputStateDescription())")
+        phantomReinsertPending = false
         if let previouslyMarkedRange = _markedTextRange {
             // Ensure that multi-char input (Chinese-Japanese keyboards) works:
             if let previouslyMarkedText = text(in: previouslyMarkedRange) {

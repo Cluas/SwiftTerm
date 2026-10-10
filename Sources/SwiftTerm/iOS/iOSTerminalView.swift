@@ -258,6 +258,12 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     // We use this as temporary storage for UITextInput, which we send to the terminal on demand
     var textInputStorage: String = ""
     var pendingAutoPeriodDeleteWasSpace: Bool = false
+    /// Set when a selection deleted from the very front of the buffer took the
+    /// phantom with it — see `deleteBackward()` and `insertText(_:)`.
+    var phantomReinsertPending: Bool = false
+    /// Nonzero while the input system itself is calling in (`insertText`,
+    /// `deleteBackward`, `replace`, marked text) — see `beginTextInputEdit()`.
+    var inputSystemEditDepth: Int = 0
 
     /// The character `primePhantomInputPrefix()` parks in front of the caret.
     ///
@@ -1873,7 +1879,40 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     */
     open func insertText(_ text: String) {
         uitiLog("insertText(\(text.debugDescription)) \(textInputStateDescription())")
+        inputSystemEditDepth += 1
+        defer { inputSystemEditDepth -= 1 }
+        if phantomReinsertPending {
+            phantomReinsertPending = false
+            if text == String(TerminalView.phantomInputCharacter) {
+                restorePhantomWithoutSending()
+                return
+            }
+        }
         commitTextInput(text, applyModifiers: true)
+    }
+
+    /// UIKit putting back the first character of a two-character selection it
+    /// just deleted (its way of deleting one character for a third-party
+    /// keyboard), when that character was the phantom: a delete that walked
+    /// back to the start of the line — 豆包 correcting its voice input there,
+    /// or its delete key held down. The phantom is a
+    /// newline, so committing it would press Return on the remote — run a
+    /// half-dictated shell command, submit half a prompt. It was never sent,
+    /// so it is not sent now either; only the shadow buffer gets it back.
+    private func restorePhantomWithoutSending() {
+        let phantom = TerminalView.phantomInputCharacter
+        let caret = _selectedTextRange.startPosition.offset
+        let storage = Array(textInputStorage)
+        if caret > 0, caret <= storage.count, storage[caret - 1] == phantom {
+            uitiLog("insertText phantom re-insert swallowed (already primed)")
+            return
+        }
+        uitiLog("insertText phantom re-insert swallowed (restored locally)")
+        beginTextInputEdit()
+        textInputStorage.replaceSubrange(_selectedTextRange.fullRange(in: textInputStorage), with: String(phantom))
+        let after = TextPosition(offset: _selectedTextRange.startPosition.offset + 1)
+        _selectedTextRange = TextRange(from: after, to: after)
+        endTextInputEdit()
     }
     private func kittyEncoder() -> KittyKeyboardEncoder {
         KittyKeyboardEncoder(flags: terminal.keyboardEnhancementFlags,
@@ -2332,6 +2371,9 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     
     public func deleteBackward() {
         uitiLog("deleteBackward() \(textInputStateDescription())")
+        inputSystemEditDepth += 1
+        defer { inputSystemEditDepth -= 1 }
+        phantomReinsertPending = false
 
         if let markedRange = _markedTextRange, !markedRange.isEmpty {
             // Composing (Pinyin, Zhuyin, Cangjie, Korean syllable assembly,
@@ -2417,6 +2459,17 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
             let backspaces = remoteBackspaceCount(for: oldText)
             for _ in 0..<backspaces {
                 self.sendBackspaceKey()
+            }
+            // UIKit may be about to put this selection's first character back
+            // (see `restorePhantomWithoutSending()`); if that is the phantom,
+            // the re-insert must not reach the remote as a Return. It does so
+            // within this same turn of the run loop — a Return typed after a
+            // delete that merely ended at the front is a real one.
+            if rangeStartIndex == 0 && oldText.first == TerminalView.phantomInputCharacter {
+                phantomReinsertPending = true
+                DispatchQueue.main.async { [weak self] in
+                    self?.phantomReinsertPending = false
+                }
             }
 
             textInputStorage.removeSubrange(rangeToDelete.fullRange(in: textInputStorage))
