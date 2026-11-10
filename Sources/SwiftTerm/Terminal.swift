@@ -5250,6 +5250,14 @@ open class Terminal {
         cursorHidden = savedCursorHidden
         refresh (startRow: 0, endRow: rows-1)
         syncScrollArea ()
+        // A fresh normal buffer took the place of whatever was shown: no
+        // history, the viewport on its first row. Like erasing the saved
+        // lines (ED 3), that moves the viewport, and a view that places itself
+        // from `yDisp` (iOS: the scroll offset, and the content size from the
+        // line count) has to hear it, or it keeps drawing rows of the old
+        // buffer that are not there — a blank screen after `reset`, until
+        // something scrolls.
+        tdel?.scrolled (source: self, yDisp: buffer.yDisp)
     }
 
     // Support for:

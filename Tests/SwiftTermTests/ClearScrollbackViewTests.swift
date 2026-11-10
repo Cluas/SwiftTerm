@@ -46,5 +46,26 @@ struct ClearScrollbackViewTests {
         #expect(view.terminal.getTopVisibleRow() == 0)
         #expect(host.positions == [0], "the viewport moved to the top without a word: \(host.positions)")
     }
+
+    /// A full reset (`ESC c`, what `reset` sends) drops the history with the
+    /// rest of the buffer: the same move, the same word owed.
+    @MainActor
+    @Test func resetWithHistoryTellsTheViewAndItsHostWhereTheViewportWent() {
+        let view = TerminalView(frame: CGRect(x: 0, y: 0, width: 400, height: 200))
+        let host = Host()
+        view.terminalDelegate = host
+        for i in 0 ..< 200 {
+            view.terminal.feed(text: "line \(i)\r\n")
+        }
+        #expect(view.canScroll, "history above the screen")
+        #expect(view.terminal.getTopVisibleRow() > 0)
+
+        host.positions = []
+        view.terminal.feed(text: "\u{1b}c")
+
+        #expect(!view.canScroll, "a reset leaves no history")
+        #expect(view.terminal.getTopVisibleRow() == 0)
+        #expect(host.positions == [0], "the viewport moved to the top without a word: \(host.positions)")
+    }
 }
 #endif

@@ -179,6 +179,62 @@ final class UpdateRangeTests: TerminalDelegate {
         #expect(range.map { $0.startY <= 0 && $0.endY >= t.rows - 1 } == true,
                 "the whole screen must repaint, range \(range.map { "\($0.startY)...\($0.endY)" } ?? "none")")
     }
+
+    /// A full reset — RIS, `ESC c`, which `reset` and `tput reset` send —
+    /// swaps in a fresh normal buffer: no history, the viewport on its first
+    /// row. It is the same move as erasing the saved lines and needs the same
+    /// word to the view, from wherever the viewport was: an iOS view still
+    /// placed on the old row draws rows that are not there, a blank screen
+    /// until something scrolls.
+    @Test(arguments: [Viewport.liveBottom, .inHistory, .atTheTop])
+    func fullResetMovesTheViewportAndRepaintsIt(from viewport: Viewport) {
+        let t = terminalWithHistory(at: viewport)
+
+        t.clearUpdateRange()
+        announcedYDisp = nil
+        t.feed(text: "\u{1b}c")
+
+        #expect(t.displayBuffer.lines.count == t.rows, "a reset leaves no history")
+        #expect(t.displayBuffer.yDisp == 0)
+        #expect(announcedYDisp == 0, "the view was not told where the viewport went")
+        let range = t.getUpdateRange()
+        #expect(range.map { $0.startY <= 0 && $0.endY >= t.rows - 1 } == true,
+                "the whole screen must repaint, range \(range.map { "\($0.startY)...\($0.endY)" } ?? "none")")
+    }
+
+    /// DECCOLM (`CSI ? 3 h` / `CSI ? 3 l`, 132 and 80 columns) resizes and
+    /// then resets: the same fresh buffer, the same word owed to the view.
+    @Test(arguments: ["\u{1b}[?3h", "\u{1b}[?3l"])
+    func columnModeMovesTheViewportAndRepaintsIt(sequence: String) {
+        let t = terminalWithHistory(at: .inHistory)
+
+        t.clearUpdateRange()
+        announcedYDisp = nil
+        t.feed(text: sequence)
+
+        #expect(t.displayBuffer.lines.count == t.rows, "DECCOLM resets: no history")
+        #expect(t.displayBuffer.yDisp == 0)
+        #expect(announcedYDisp == 0, "the view was not told where the viewport went")
+        let range = t.getUpdateRange()
+        #expect(range.map { $0.startY <= 0 && $0.endY >= t.rows - 1 } == true,
+                "the whole screen must repaint, range \(range.map { "\($0.startY)...\($0.endY)" } ?? "none")")
+    }
+
+    /// Thirty lines of output on a five-row screen, the viewport placed.
+    private func terminalWithHistory(at viewport: Viewport) -> Terminal {
+        let t = Terminal(delegate: self, options: TerminalOptions(cols: 20, rows: 5, scrollback: 50))
+        for i in 0 ..< 30 {
+            t.feed(text: "line \(i)\r\n")
+        }
+        t.feed(text: "$ reset")
+        #expect(t.displayBuffer.lines.count > t.rows, "history above the screen")
+        switch viewport {
+        case .liveBottom: break
+        case .inHistory: t.setViewYDisp(7)
+        case .atTheTop: t.setViewYDisp(0)
+        }
+        return t
+    }
 }
 
 /// splitmix64.
