@@ -241,6 +241,17 @@ internal class CircularBufferLineList {
         array
     }
 
+    /// Calls `body` with every line the list has made — the ones in use and
+    /// any left in a slot past `count` — and leaves the empty slots empty.
+    /// The subscript, by contrast, makes a line for each empty slot it reads.
+    func forEachAllocated (_ body: (BufferLine) -> Void) {
+        for line in array {
+            if let line {
+                body (line)
+            }
+        }
+    }
+
     public func getStartIndex() -> Int {
         startIndex
     }

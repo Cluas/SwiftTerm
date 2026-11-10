@@ -419,12 +419,15 @@ public final class Buffer {
         }
         if lines.count > 0 {
             // Deal with columns increasing (reducing needs to happen after reflow)
-            
+            //
+            // Only the lines the buffer has made: an empty slot of the
+            // history gets its line when it is first used, at the width the
+            // buffer has then (`getBlankLine`). Walking every slot up to
+            // `maxLength` made a blank line for each one — with a scrollback
+            // of 50 000 lines, about 96 MB and tens of milliseconds at 80
+            // columns on the first resize, for history nobody had written.
             if cols < newCols {
-                for i in 0..<lines.maxLength {
-                    lines [i].resize (cols: newCols, fillData: CharData.Null)
-                }
-
+                lines.forEachAllocated { $0.resize (cols: newCols, fillData: CharData.Null) }
             }
 
             // Resize rows in both directions as needed
@@ -503,16 +506,14 @@ public final class Buffer {
             reflow (newCols, newRows)
             // Trim the end of the line off if cols shrunk
             if cols > newCols {
-                for i in 0..<lines.maxLength {
-                    lines [i].resize (cols: newCols, fillData: CharData.Null)
-                }
+                lines.forEachAllocated { $0.resize (cols: newCols, fillData: CharData.Null) }
             }
         }
-        
-        // DEBUG: Post-condition
+
+        // DEBUG: Post-condition (over the lines that exist; reading an empty
+        // slot would make its line)
         if lines.count > 0 {
-            for i in 0..<lines.maxLength {
-                let line = lines [i]
+            lines.forEachAllocated { line in
                 if line.count < newCols {
                     print ("stop here newCols=\(newCols) but the element has: \(line.count)")
                     abort ()
