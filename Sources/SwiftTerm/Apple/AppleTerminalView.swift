@@ -107,7 +107,11 @@ extension TerminalView {
         #if os(macOS)
         needsDisplay = true
         #else
-        setNeedsDisplay(frame)
+        // Every row moves with the cell size, and a resize that keeps the
+        // same columns and rows records no update range: the whole view, in
+        // its own coordinates (the frame is the superview's, off by the
+        // scroll offset).
+        setNeedsDisplay(bounds)
         #endif
     }
     
@@ -158,7 +162,7 @@ extension TerminalView {
         #if os(macOS)
         needsDisplay = true
         #else
-        setNeedsDisplay(frame)
+        setNeedsDisplay(bounds)
         #endif
     }
 
