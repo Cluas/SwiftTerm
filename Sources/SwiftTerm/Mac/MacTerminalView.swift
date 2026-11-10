@@ -434,7 +434,15 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
     }
     
     /// Controls weather to use high ansi colors, if false terminal will use bold text instead of high ansi colors
-    public var useBrightColors: Bool = true
+    public var useBrightColors: Bool = true {
+        didSet {
+            // Every cached text attribute was resolved with the old value:
+            // drop them and repaint, or a change at run time shows nowhere.
+            if useBrightColors != oldValue {
+                colorsChanged ()
+            }
+        }
+    }
 
     /// When true, block element (U+2580-U+259F) and box drawing (U+2500-U+257F) characters use custom rendering.
     public var customBlockGlyphs: Bool = true {
