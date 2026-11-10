@@ -4705,9 +4705,12 @@ open class Terminal {
         let line = buffer.lines [buffer.yBase + buffer.y]
         let chData = buffer.x - 1 < 0 ? CharData (attribute: CharData.defaultAttr) : line [buffer.x - 1]
         
+        // The rows written, first to last, as handlePrint records them.
+        updateRange (buffer.y)
         for _ in 0..<p {
             insertCharacter(chData)
         }
+        updateRange (buffer.y)
     }
 
     //
@@ -4766,6 +4769,7 @@ open class Terminal {
             start: buffer.x,
             end: buffer.x + p,
             fillData: CharData (attribute:  eraseAttr ()))
+        updateRange (buffer.y)
     }
 
     func csiT (_ pars: [Int], _ collect: cstring)
