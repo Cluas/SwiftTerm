@@ -1886,7 +1886,18 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
     {
         let clipboard = NSPasteboard.general
         let text = clipboard.string(forType: .string)
-        insertText(text ?? "", replacementRange: NSRange(location: 0, length: 0), isPaste: true)
+        paste (text: text ?? "")
+    }
+
+    /// Pastes `text` the way Paste and ⌘V do: the delegate may take it over
+    /// (`pasteRequested(source:text:)`); otherwise it is inserted as a paste,
+    /// bracketed when the terminal's `bracketedPasteMode` is on.
+    public func paste (text: String)
+    {
+        if terminalDelegate?.pasteRequested (source: self, text: text) == true {
+            return
+        }
+        insertText(text, replacementRange: NSRange(location: 0, length: 0), isPaste: true)
     }
     
     @objc

@@ -525,16 +525,31 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     
     @objc open override func paste (_ sender: Any?) {
         disableSelectionPanGesture()
-        if let start = UIPasteboard.general.string {
-            if terminal.bracketedPasteMode {
-                send(data: EscapeSequences.bracketedPasteStart[0...])
-            }
-            send(txt: start)
-            if terminal.bracketedPasteMode {
-                send(data: EscapeSequences.bracketedPasteEnd[0...])
-            }
-            queuePendingDisplay()
+        if let text = UIPasteboard.general.string {
+            paste (text: text)
         }
+    }
+
+    /// Pastes `text` the way the edit menu's Paste and ⌘V do: the delegate
+    /// may take it over (`pasteRequested(source:text:)`); otherwise it is sent
+    /// in ONE write, wrapped in bracketed-paste markers when the terminal's
+    /// `bracketedPasteMode` is on. One write, not three: a transport that
+    /// carries each write as its own message only recognises a paste that
+    /// arrives whole.
+    public func paste (text: String) {
+        if terminalDelegate?.pasteRequested (source: self, text: text) == true {
+            return
+        }
+        var bytes: [UInt8] = []
+        if terminal.bracketedPasteMode {
+            bytes += EscapeSequences.bracketedPasteStart
+        }
+        bytes += Array (text.utf8)
+        if terminal.bracketedPasteMode {
+            bytes += EscapeSequences.bracketedPasteEnd
+        }
+        send (data: bytes[...])
+        queuePendingDisplay()
     }
 
     @objc open override func copy(_ sender: Any?) {

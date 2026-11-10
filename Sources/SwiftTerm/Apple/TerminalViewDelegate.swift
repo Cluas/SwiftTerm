@@ -98,12 +98,33 @@ public protocol TerminalViewDelegate: AnyObject {
      */
     func clipboardRequest (source: TerminalView)
 
+    /**
+     * Invoked when the user pastes into the terminal — the edit menu's Paste,
+     * ⌘V, or `paste(text:)` — before anything is sent. Return `true` when the
+     * host has delivered `text` itself; return `false` to let the view send
+     * it as it always has, wrapped in bracketed-paste markers when the
+     * terminal's `bracketedPasteMode` is on (on iOS, in one write).
+     *
+     * Take the paste over when the local emulator cannot tell whether the
+     * program wants it bracketed: a host that renders a multiplexer's view of
+     * a pane rather than the program's own output may never see the program
+     * turn bracketed paste on, and a transport may need the whole paste in
+     * one message to recognise it as one. The default implementation returns
+     * `false`.
+     */
+    func pasteRequested (source: TerminalView, text: String) -> Bool
+
 }
 
 public extension TerminalViewDelegate {
     // Default no-op so existing adopters keep compiling; hosts that want
     // to answer OSC 52 read queries override it.
     func clipboardRequest (source: TerminalView) {
+    }
+
+    // The view sends the paste itself, as it always did.
+    func pasteRequested (source: TerminalView, text: String) -> Bool {
+        false
     }
 }
 #endif
