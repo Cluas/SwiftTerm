@@ -18,6 +18,12 @@ import Testing
 final class UpdateRangeTests: TerminalDelegate {
     func send(source: Terminal, data: ArraySlice<UInt8>) {}
 
+    /// The viewport row the terminal last announced (`scrolled`): where a
+    /// view that follows `yDisp` — iOS places its scroll offset there — puts
+    /// itself. Each test gets its own instance.
+    private var announcedYDisp: Int?
+    func scrolled(source: Terminal, yDisp: Int) { announcedYDisp = yDisp }
+
     /// What a row draws from: every cell (character, width, link, colors and
     /// style), the line's render mode, its images.
     private struct RowSnapshot: Equatable {
@@ -60,10 +66,16 @@ final class UpdateRangeTests: TerminalDelegate {
             let yDisp = buffer.yDisp
             let before = visibleRows(t)
             t.clearUpdateRange()
+            announcedYDisp = nil
             t.feed(text: chunk)
             // A viewport that moved (output scrolled it, or ESC [ 3 J trimmed
-            // the history above it) is repainted whole by the view.
+            // the history above it) is repainted whole by the view — once the
+            // view knows: it repaints when its offset moves to the new row,
+            // and it moves only when told.
             if t.displayBuffer === buffer && t.displayBuffer.yDisp != yDisp {
+                if announcedYDisp != t.displayBuffer.yDisp {
+                    found.append("chunk \(i) \(chunk.debugDescription): the viewport moved from row \(yDisp) to \(t.displayBuffer.yDisp), the view was told \(announcedYDisp.map(String.init) ?? "nothing")")
+                }
                 continue
             }
             let after = visibleRows(t)
@@ -121,6 +133,51 @@ final class UpdateRangeTests: TerminalDelegate {
         ]
         let found = violations(cols: 40, rows: 12, scrollback: 10, chunks: chunks)
         #expect(found.isEmpty, "\(found)")
+    }
+
+    /// Where the viewport is when the saved lines go.
+    enum Viewport: CustomStringConvertible {
+        case liveBottom, inHistory, atTheTop
+        var description: String {
+            switch self {
+            case .liveBottom: return "at the live bottom"
+            case .inHistory: return "reading history"
+            case .atTheTop: return "at the top of the history"
+            }
+        }
+    }
+
+    /// `clear` in a shell and `/clear` in Claude Code end with ESC [ 3 J:
+    /// erase the saved lines. Every row the viewport shows moves to another
+    /// index, so the view has to hear where the viewport went (its scroll
+    /// offset and content size follow it) and repaint all of it — from the
+    /// live bottom, from a row in the history (which now shows the screen),
+    /// and from the very top, where the row number stays but the rows under
+    /// it are new.
+    @Test(arguments: [Viewport.liveBottom, .inHistory, .atTheTop])
+    func erasingSavedLinesMovesTheViewportAndRepaintsIt(from viewport: Viewport) {
+        let t = Terminal(delegate: self, options: TerminalOptions(cols: 20, rows: 5, scrollback: 50))
+        for i in 0 ..< 30 {
+            t.feed(text: "line \(i)\r\n")
+        }
+        t.feed(text: "$ clear")
+        #expect(t.displayBuffer.lines.count > t.rows, "history above the screen")
+        switch viewport {
+        case .liveBottom: break
+        case .inHistory: t.setViewYDisp(7)
+        case .atTheTop: t.setViewYDisp(0)
+        }
+
+        t.clearUpdateRange()
+        announcedYDisp = nil
+        t.feed(text: "\u{1b}[3J")
+
+        #expect(t.displayBuffer.lines.count == t.rows, "the saved lines are gone")
+        #expect(t.displayBuffer.yDisp == 0)
+        #expect(announcedYDisp == 0, "the view was not told where the viewport went")
+        let range = t.getUpdateRange()
+        #expect(range.map { $0.startY <= 0 && $0.endY >= t.rows - 1 } == true,
+                "the whole screen must repaint, range \(range.map { "\($0.startY)...\($0.endY)" } ?? "none")")
     }
 }
 

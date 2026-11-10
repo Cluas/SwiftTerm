@@ -2486,6 +2486,15 @@ open class Terminal {
                 buffer.linesTop = 0
                 buffer.yBase = max (buffer.yBase - scrollBackSize, 0)
                 buffer.yDisp = max (buffer.yDisp - scrollBackSize, 0)
+                // Every row the viewport shows now sits at another index, and
+                // a viewport that was reading history shows the screen: the
+                // view repaints all of it, and learns where the viewport went.
+                // A view that places itself from `yDisp` (iOS: the scroll
+                // offset, and the content size from the line count) otherwise
+                // keeps drawing rows that no longer exist — a blank screen
+                // after `clear`, until something scrolls.
+                updateFullScreen ()
+                tdel?.scrolled (source: self, yDisp: buffer.yDisp)
             }
             break;
         default:
