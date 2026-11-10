@@ -1657,17 +1657,17 @@ extension TerminalView {
         setNeedsDisplay(region)
 #endif
         #else
-        // TODO iOS: need to update the code above, but will do that when I get some real
-        // life data being fed into it.
+        // CoreGraphics repaints only what changed: the rows in the update
+        // range, or the whole view when the change really is the whole view.
         #if canImport(MetalKit)
         if metalView != nil {
             metalDirtyRange = metalVisibleRange()
             requestMetalDisplay()
         } else {
-            setNeedsDisplay(bounds)
+            setNeedsDisplay (screenRows: rowStart, rowEnd)
         }
         #else
-        setNeedsDisplay(bounds)
+        setNeedsDisplay (screenRows: rowStart, rowEnd)
         #endif
         #endif
 

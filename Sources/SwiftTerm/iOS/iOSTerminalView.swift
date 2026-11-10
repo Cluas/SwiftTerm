@@ -1405,6 +1405,9 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         }
         set {
             _selectedTextBackgroundColor = newValue
+            // A selection on screen takes the new color everywhere at once,
+            // not row by row as later output happens to repaint them.
+            setNeedsDisplayAllRows ()
         }
     }
     
@@ -1416,6 +1419,7 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         }
         set {
             _selectionHandleColor = newValue
+            setNeedsDisplayAllRows ()
         }
     }
 
@@ -1754,6 +1758,66 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         }
         let overflow = max (top - (cellHeight - baseline), -bottom - baseline, 0)
         return min (4, max (1, Int (ceil (overflow / cellHeight))))
+    }
+
+    /// Whether the rows of an update range (rows of the screen) mean the whole
+    /// view: the range covers the screen or reaches past it, or it cannot be
+    /// placed — update ranges count from the top of the screen (`yBase`), and
+    /// a viewport scrolled back into history (`yDisp` < `yBase`) shows that
+    /// elsewhere, while link highlights count from `yDisp`.
+    func updateRangeCoversView (_ startRow: Int, _ endRow: Int) -> Bool {
+        let buffer = terminal.displayBuffer
+        let rows = terminal.rows
+        return buffer.yDisp != buffer.yBase
+            || startRow > rows - 1 || endRow > rows - 1
+            || (startRow <= 0 && endRow >= rows - 1)
+    }
+
+    /// Invalidates what an update range changed, for the CoreGraphics
+    /// renderer: screen rows `startRow...endRow`, widened by the rows their
+    /// glyphs reach into (`rowOverflowReach`), and down to the bottom edge
+    /// when they include the last row (the strip under it belongs to no row).
+    ///
+    /// Nothing else lives in the layer: the caret and the IME composition are
+    /// subviews, and the selection handles are drawn by every pass (clipped to
+    /// what it repaints). Repaints the whole view when the change is the whole
+    /// view (`updateRangeCoversView`), when images are on screen (they are
+    /// drawn from the row they start on and span rows), or when the layer's
+    /// pixels were laid out for other bounds or another cell size.
+    func setNeedsDisplay (screenRows startRow: Int, _ endRow: Int) {
+        let buffer = terminal.displayBuffer
+        let cellHeight = cellDimension.height
+        if cellHeight <= 0 || updateRangeCoversView (startRow, endRow)
+            || bounds != drawnBounds || cellDimension != drawnCellSize
+            || buffer.hasAnyImages || !terminal.kittyGraphicsState.placementsByKey.isEmpty {
+            setNeedsDisplay (bounds)
+            return
+        }
+        let reach = rowOverflowReach ()
+        let first = buffer.yDisp + startRow - reach
+        let last = buffer.yDisp + endRow + reach
+        var rect = CGRect (x: bounds.minX, y: CGFloat (first) * cellHeight,
+                           width: bounds.width, height: CGFloat (last - first + 1) * cellHeight)
+        if endRow + reach >= terminal.rows - 1 {
+            rect.size.height = max (rect.height, bounds.maxY - rect.minY)
+        }
+        rect = rect.intersection (bounds)
+        if !rect.isNull && !rect.isEmpty {
+            setNeedsDisplay (rect)
+        }
+    }
+
+    /// Repaints every visible row, whichever renderer draws them — for state
+    /// that every row's drawing reads and no update range records.
+    func setNeedsDisplayAllRows () {
+#if canImport(MetalKit)
+        if metalView != nil {
+            metalDirtyRange = metalVisibleRange()
+            queueMetalDisplay()
+            return
+        }
+#endif
+        setNeedsDisplay (bounds)
     }
     open override func layoutSubviews() {
         super.layoutSubviews()
