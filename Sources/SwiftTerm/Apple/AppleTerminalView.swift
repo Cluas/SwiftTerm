@@ -1171,8 +1171,17 @@ extension TerminalView {
         // positions, producing garbled output. contentOffset.y is always correct because
         // the scroll view is kept in sync with yDisp (contentOffset.y == yDisp * cellHeight).
         let cellHeight = cellDimension.height
-        let firstRow = Int(contentOffset.y / cellHeight)
-        let lastRow = firstRow + Int(ceil(bounds.height / cellHeight))
+        let firstVisibleRow = Int(contentOffset.y / cellHeight)
+        let lastVisibleRow = firstVisibleRow + Int(ceil(bounds.height / cellHeight))
+        // Of those, only the rows that can paint into `dirtyRect` — the area this
+        // pass repaints, in the same coordinates the rows are laid out in (row r
+        // spans r * cellHeight ..< (r + 1) * cellHeight) — and the neighbours whose
+        // glyphs reach into it. Drawn in the same order as a full pass, so every
+        // pixel inside the area comes out exactly as a full redraw would paint it;
+        // outside it, the clip keeps the pixels already there.
+        let reach = rowOverflowReach ()
+        let firstRow = max (firstVisibleRow, Int (floor (dirtyRect.minY / cellHeight)) - reach)
+        let lastRow = min (lastVisibleRow, Int (ceil (dirtyRect.maxY / cellHeight)) - 1 + reach)
         #else
         // On Mac, we are drawing the terminal buffer
         let cellHeight = cellDimension.height
@@ -1190,7 +1199,7 @@ extension TerminalView {
         }
         var placeholderImageCache: [UInt32: TTImage] = [:]
 
-        for row in firstRow...lastRow {
+        for row in stride (from: firstRow, through: lastRow, by: 1) {
             if row < 0 {
                 continue
             }

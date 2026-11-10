@@ -352,6 +352,10 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         setupGestures ()
         setupLinkReportingInteractions()
         setupAccessoryView ()
+        NotificationCenter.default.addObserver (self, selector: #selector (redrawContentsMayBeLost),
+                                                name: UIApplication.willEnterForegroundNotification, object: nil)
+        NotificationCenter.default.addObserver (self, selector: #selector (redrawContentsMayBeLost),
+                                                name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
         didFinishSetup = true
     }
 
@@ -1649,17 +1653,107 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
             return
         }
 
+        // What this pass repaints: what was invalidated since the last one.
+        // iOS hands `draw(_:)` the whole bounds as `dirtyRect` (and as the
+        // clip) however little was invalidated, then keeps every pixel outside
+        // what was — so when Core Animation displays the layer, the rows to
+        // lay out come from the invalidations the layer recorded
+        // (`TerminalViewLayer`). None recorded means UIKit or Core Animation
+        // redraws on its own (a first display, contents it dropped):
+        // everything. A host drawing the view into a context of its own gets
+        // everything too.
+        var area = dirtyRect.intersection (bounds)
+        let clip = context.boundingBoxOfClipPath
+        if !clip.isNull && !clip.isInfinite {
+            area = area.intersection (clip)
+        }
+        if displayingLayer {
+            let invalidated = invalidatedArea
+            invalidatedArea = .null
+            if !invalidated.isNull && !invalidated.isInfinite {
+                area = area.intersection (invalidated)
+            }
+            // A partial pass paints next to pixels laid out for the bounds and
+            // the cell size of the previous one. layoutSubviews and resetFont
+            // invalidate everything when those change, so this never fires; if
+            // it ever did, the next pass repaints everything instead of leaving
+            // the view torn.
+            let wholeView = area.width >= bounds.width && area.height >= bounds.height
+            if !wholeView && (bounds != drawnBounds || cellDimension != drawnCellSize) {
+                setNeedsDisplay (bounds)
+            }
+            drawnBounds = bounds
+            drawnCellSize = cellDimension
+        }
+        guard !area.isNull, !area.isEmpty else {
+            return
+        }
+
         // Without these two lines, on font changes, some junk is being displayed
         // Once we test the font change, we could disable these two lines, and
         // enable the #if false in drawterminalContents that should be coping with this now
         nativeBackgroundColor.set ()
-        context.fill ([dirtyRect])
+        context.fill ([area])
 
         // drawTerminalContents and CoreText expect the AppKit coordinate system
         context.scaleBy (x: 1, y: -1)
         context.translateBy(x: 0, y: -frame.height)
 
-        drawTerminalContents (dirtyRect: dirtyRect, context: context, bufferOffset: 0)
+        drawTerminalContents (dirtyRect: area, context: context, bufferOffset: 0)
+    }
+
+    /// The bounds and cell size the layer's pixels were last drawn for: a
+    /// partial pass is only valid next to pixels laid out the same way.
+    var drawnBounds: CGRect = .null
+    var drawnCellSize: CGSize = .zero
+
+    /// What has been invalidated since the last draw, in bounds coordinates:
+    /// `.null` for nothing, `.infinite` for everything. Kept by
+    /// `TerminalViewLayer`, read and reset by `draw(_:)`.
+    var invalidatedArea: CGRect = .null
+
+    /// True while Core Animation displays the layer (`TerminalViewLayer`):
+    /// the only time `draw(_:)` paints the layer's own pixels, and so the
+    /// only time a pass may leave rows out.
+    var displayingLayer = false
+
+    open override class var layerClass: AnyClass {
+        TerminalViewLayer.self
+    }
+
+    open override func didMoveToWindow () {
+        super.didMoveToWindow ()
+        // A layer that comes back on screen may come back without its pixels.
+        setNeedsDisplay ()
+    }
+
+    /// Core Animation may drop the layer contents of an app in the background
+    /// or under memory pressure and redraw them whole on its own; the pass
+    /// that does must not lay out only the rows recorded meanwhile.
+    @objc func redrawContentsMayBeLost () {
+        setNeedsDisplay ()
+    }
+
+    /// How many rows beyond its own a row's glyphs can reach — at least one.
+    /// The tallest and deepest glyph boxes of the fonts in use, against the
+    /// room the cell leaves above and below the baseline. Fallback fonts
+    /// (emoji, CJK) are not in the set; at the sizes a terminal uses they
+    /// overflow a cell by a point or so, which the floor of one row covers.
+    func rowOverflowReach () -> Int {
+        let cellHeight = cellDimension.height
+        guard cellHeight > 0 else {
+            return 1
+        }
+        let baseline = ceil (CTFontGetDescent (fontSet.normal) + CTFontGetLeading (fontSet.normal))
+        var top: CGFloat = 0
+        var bottom: CGFloat = 0
+        for font in [fontSet.normal, fontSet.bold, fontSet.italic, fontSet.boldItalic] {
+            let box = CTFontGetBoundingBox (font)
+            top = max (top, box.maxY)
+            bottom = min (bottom, box.minY)
+        }
+        let overflow = max (top - (cellHeight - baseline), -bottom - baseline, 0)
+        return min (4, max (1, Int (ceil (overflow / cellHeight))))
     }
     open override func layoutSubviews() {
         super.layoutSubviews()
@@ -3004,6 +3098,33 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
 
     public func iTermContent (source: Terminal, content: ArraySlice<UInt8>) {
         terminalDelegate?.iTermContent(source: self, content: content)
+    }
+}
+
+/// The terminal view's layer: it records every invalidation for
+/// `TerminalView.draw(_:)` — SwiftTerm's, the host's and UIKit's alike pass
+/// through `setNeedsDisplay` here (a view's `setNeedsDisplay` is its
+/// layer's) — and marks when Core Animation displays it. iOS hands
+/// `draw(_:)` the whole bounds however little was invalidated, so this is how
+/// a pass learns which rows it has to lay out.
+final class TerminalViewLayer: CALayer {
+    override func display () {
+        let view = delegate as? TerminalView
+        view?.displayingLayer = true
+        super.display ()
+        view?.displayingLayer = false
+    }
+
+    override func setNeedsDisplay () {
+        (delegate as? TerminalView)?.invalidatedArea = .infinite
+        super.setNeedsDisplay ()
+    }
+
+    override func setNeedsDisplay (_ r: CGRect) {
+        if let view = delegate as? TerminalView {
+            view.invalidatedArea = view.invalidatedArea.union (r)
+        }
+        super.setNeedsDisplay (r)
     }
 }
 
