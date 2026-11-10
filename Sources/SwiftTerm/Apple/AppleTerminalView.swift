@@ -1595,6 +1595,13 @@ extension TerminalView {
         defer { pendingDisplay = false }
         updateCursorPosition()
         guard let (rowStart, rowEnd) = terminal.getUpdateRange () else {
+            #if (os(iOS) || os(visionOS)) && canImport(MetalKit)
+            // No cell changed, but the Metal renderer draws the cursor itself:
+            // one that moved needs a frame.
+            if metalView != nil && metalCursorMoved () {
+                requestMetalDisplay()
+            }
+            #endif
             if notifyUpdateChanges {
                 let buffer = terminal.displayBuffer
                 let y = buffer.yDisp+buffer.y
@@ -1657,11 +1664,11 @@ extension TerminalView {
         setNeedsDisplay(region)
 #endif
         #else
-        // CoreGraphics repaints only what changed: the rows in the update
-        // range, or the whole view when the change really is the whole view.
+        // Only what changed: the rows in the update range, or the whole view
+        // when the change really is the whole view.
         #if canImport(MetalKit)
         if metalView != nil {
-            metalDirtyRange = metalVisibleRange()
+            setMetalRowsDirty (screenRows: rowStart, rowEnd)
             requestMetalDisplay()
         } else {
             setNeedsDisplay (screenRows: rowStart, rowEnd)

@@ -1619,6 +1619,49 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         }
         return firstRow...lastRow
     }
+
+    /// Marks the buffer rows the Metal renderer must rebuild (its per-row
+    /// cache keeps the others): the rows of an update range (screen rows
+    /// `startRow...endRow`), every visible row when the change covers the
+    /// view. Merged into what is still waiting to be drawn — a second update
+    /// before the frame must not drop the first one's rows.
+    func setMetalRowsDirty (screenRows startRow: Int, _ endRow: Int) {
+        if updateRangeCoversView (startRow, endRow) {
+            mergeMetalDirtyRows (metalVisibleRange())
+        } else {
+            let yDisp = terminal.displayBuffer.yDisp
+            mergeMetalDirtyRows ((yDisp + startRow)...(yDisp + max (startRow, endRow)))
+        }
+        _ = metalCursorMoved ()
+    }
+
+    /// Where the cursor was (buffer row, column) at the last display update.
+    /// The Metal renderer draws the cursor itself, over its cached rows, on
+    /// every frame (the caret view is hidden): a cursor that moved needs a
+    /// frame even when no cell changed, but no row rebuilt.
+    var metalCursor: (row: Int, col: Int)?
+
+    /// Whether the cursor moved since the last call.
+    func metalCursorMoved () -> Bool {
+        let buffer = terminal.displayBuffer
+        let cursor = (row: buffer.yBase + buffer.y, col: buffer.x)
+        defer { metalCursor = cursor }
+        guard let previous = metalCursor else {
+            return true
+        }
+        return previous != cursor
+    }
+
+    func mergeMetalDirtyRows (_ rows: ClosedRange<Int>?) {
+        guard let rows else {
+            return
+        }
+        if let pending = metalDirtyRange {
+            metalDirtyRange = min (pending.lowerBound, rows.lowerBound)...max (pending.upperBound, rows.upperBound)
+        } else {
+            metalDirtyRange = rows
+        }
+    }
 #endif
     
     var userScrolling = false
