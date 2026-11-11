@@ -131,6 +131,14 @@ final class SearchService {
         let cols = max(terminal.cols, 1)
         let linearStart = position.row * cols + position.col
         let linearEnd = linearStart + cells
+        // A match that ends in a row's last column ends at the edge after
+        // it, `cols`, on its own row, as xterm.js's selection model ends one
+        // (finalSelectionEnd). Put at the start of the next row, the copy
+        // took the line break after the match, and on the last line, which
+        // has no next row, the end fell back before the match's start.
+        if linearEnd % cols == 0 {
+            return Position(col: cols, row: linearEnd / cols - 1)
+        }
         let newRow = linearEnd / cols
         let newCol = linearEnd % cols
         return Position(col: newCol, row: newRow)

@@ -95,9 +95,17 @@ class SelectionService: CustomDebugStringConvertible {
         setActiveAndNotify()
     }
         
+    /// `p` as an edge of a selection in `buffer`: a column from 0 to `cols`
+    /// (the end is exclusive, so a selection that takes a row's last cell
+    /// ends at `cols`; capped at `cols - 1` it lost that cell, as Select All
+    /// and a triple-click did), on a row the buffer has, or the end of its
+    /// last line.
     func clamp (_ buffer: Buffer, _ p: Position) -> Position {
         let maxRow = max(0, buffer.lines.count - 1)
-        return Position(col: min(p.col, buffer.cols - 1), row: min(p.row, maxRow))
+        if p.row > maxRow {
+            return Position(col: buffer.cols, row: maxRow)
+        }
+        return Position(col: min(p.col, buffer.cols), row: p.row)
     }
     /**
      * Sets the selection, this is validated against the

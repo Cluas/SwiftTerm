@@ -302,6 +302,39 @@ final class SearchTests {
         #expect(range.end == Position(col: 2, row: 1))
     }
 
+    /// A match that ends in a row's last column ends at `cols` on its row,
+    /// as xterm.js's selection model ends it. It ended at the start of the
+    /// next row: the copy took the line break after the match, and on the
+    /// bottom row, the last line, where there is no next row, the end fell
+    /// back to the row's first column, before the match: the selection
+    /// took the text in front of it instead.
+    @Test(arguments: [0, 4])
+    func testAMatchEndingInTheLastColumnSelectsItselfWhole(row: Int) throws {
+        let terminal = makeTerminal(cols: 10, rows: 5)
+        let service = SearchService(terminal: terminal)
+        let selection = SelectionService(terminal: terminal)
+        terminal.feed(text: "\u{1b}[\(row + 1);1H0123456789")
+        if row == 0 {
+            terminal.feed(text: "\r\nnext line")
+        }
+
+        let result = try #require(service.findNext(term: "789"))
+        let range = service.selectionRange(for: result)
+        #expect(range.end == Position(col: 10, row: row))
+
+        selection.setSelection(start: range.start, end: range.end)
+        #expect(selection.getSelectedText() == "789")
+    }
+
+    /// One that runs on over the row's end to the next row's last column
+    /// ends there, not on the row after it.
+    @Test func testAWrappedMatchEndingInTheLastColumnEndsOnItsRow() {
+        let terminal = makeTerminal(cols: 10, rows: 2)
+        let service = SearchService(terminal: terminal)
+        let range = service.selectionRange(for: SearchResult(term: "", col: 8, row: 0, size: 12))
+        #expect(range.end == Position(col: 10, row: 1))
+    }
+
     @Test func testSearchServiceFindNextUpdatesLastResult() {
         let terminal = makeTerminal()
         let service = SearchService(terminal: terminal)

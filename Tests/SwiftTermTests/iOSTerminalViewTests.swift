@@ -14,9 +14,7 @@ import Foundation
 import ObjectiveC
 import Testing
 import UIKit
-#if targetEnvironment(macCatalyst)
 import UIKit.UIGestureRecognizerSubclass
-#endif
 
 @testable import SwiftTerm
 
@@ -95,12 +93,22 @@ struct iOSTerminalViewTests {
         #expect(String(describing: style).contains("type = shape"), "\(style)")
     }
 
-    #if targetEnvironment(macCatalyst)
-    // MARK: - The pointer selects (Mac Catalyst)
+    // MARK: - Steered gestures
 
     /// A drag a test can steer: where the pointer is, and how far the drag
     /// has got.
     final class SteeredPan: UIPanGestureRecognizer {
+        var point = CGPoint.zero
+        var steeredState: UIGestureRecognizer.State = .possible
+        override var state: UIGestureRecognizer.State {
+            get { steeredState }
+            set { steeredState = newValue }
+        }
+        override func location(in view: UIView?) -> CGPoint { point }
+    }
+
+    /// A long press a test can steer, the same way.
+    final class SteeredLongPress: UILongPressGestureRecognizer {
         var point = CGPoint.zero
         var steeredState: UIGestureRecognizer.State = .possible
         override var state: UIGestureRecognizer.State {
@@ -115,6 +123,91 @@ struct iOSTerminalViewTests {
         CGPoint(x: (CGFloat(col) + 0.5) * view.cellDimension.width,
                 y: (CGFloat(row) + 0.5) * view.cellDimension.height + view.contentOffset.y)
     }
+
+    /// The right quarter of the last cell of screen row `row`: past its
+    /// middle, short of the view's edge.
+    private func pastTheMiddleOfTheLastCell(_ view: TerminalView, row: Int) -> CGPoint {
+        CGPoint(x: (CGFloat(view.getTerminal().cols) - 0.25) * view.cellDimension.width,
+                y: (CGFloat(row) + 0.5) * view.cellDimension.height + view.contentOffset.y)
+    }
+
+    /// A row filled to its last column, ending in "WXYZ".
+    private func feedAFullRow(_ view: TerminalView, head: String = "") {
+        let cols = view.getTerminal().cols
+        view.feed(text: head + String(repeating: " ", count: cols - 4 - head.count) + "WXYZ")
+    }
+
+    // MARK: - A selection drag to the last column
+
+    /// A selection's end is exclusive: the edge after the last cell it
+    /// takes. A drag set it to the cell under the finger, capped at the last
+    /// column, so the cell under the finger was never taken, and as no cell
+    /// lies past the last one a drag could not take a row's last character
+    /// (Select All and a triple-click had the same cap, B98 and B183). It
+    /// goes to the edge between cells nearest the finger now, as text
+    /// selection does (and xterm.js), the one past the last column included.
+    @Test func draggingTheEndHandlePastTheMiddleOfTheLastCellTakesIt() {
+        let view = makeView()
+        let cols = view.getTerminal().cols
+        feedAFullRow(view)
+        view.selection.setSelection(start: Position(col: 0, row: 0), end: Position(col: cols - 2, row: 0))
+        #expect(view.getSelection()?.hasSuffix("WX") == true)
+
+        let drag = SteeredPan(target: nil, action: nil)
+        drag.point = CGPoint(x: CGFloat(cols - 2) * view.cellDimension.width, y: point(view, col: 0, row: 0).y)
+        drag.state = .began
+        view.panSelectionHandler(drag)
+        drag.point = pastTheMiddleOfTheLastCell(view, row: 0)
+        drag.state = .changed
+        view.panSelectionHandler(drag)
+
+        let selected = view.getSelection() ?? ""
+        #expect(selected.hasSuffix("WXYZ"), "\(selected.suffix(4).debugDescription)")
+        #expect(selected.count == cols)
+    }
+
+    /// Long-press a word, then slide: the same.
+    @Test func slidingALongPressPastTheMiddleOfTheLastCellTakesIt() {
+        let view = makeView()
+        feedAFullRow(view, head: "abcd")
+        let press = SteeredLongPress(target: nil, action: nil)
+        press.point = point(view, col: 1, row: 0)
+        press.state = .began
+        view.longPress(press)
+        #expect(view.getSelection() == "abcd")
+
+        press.point = pastTheMiddleOfTheLastCell(view, row: 0)
+        press.state = .changed
+        view.longPress(press)
+
+        let selected = view.getSelection() ?? ""
+        #expect(selected.hasPrefix("abcd") && selected.hasSuffix("WXYZ"), "\(selected.suffix(4).debugDescription)")
+    }
+
+    /// The end goes to the nearest edge on the way back too: short of the
+    /// middle of a cell the cell is not taken, past it it is.
+    @Test func aDragTakesTheCellsUpToTheNearestEdge() {
+        let view = makeView()
+        view.feed(text: "0123456789")
+        view.selection.setSelection(start: Position(col: 0, row: 0), end: Position(col: 8, row: 0))
+        let width = view.cellDimension.width
+        let y = point(view, col: 0, row: 0).y
+
+        let drag = SteeredPan(target: nil, action: nil)
+        drag.point = CGPoint(x: 8 * width, y: y)
+        drag.state = .began
+        view.panSelectionHandler(drag)
+        drag.state = .changed
+        drag.point = CGPoint(x: 4.3 * width, y: y)
+        view.panSelectionHandler(drag)
+        #expect(view.getSelection() == "0123")
+        drag.point = CGPoint(x: 4.7 * width, y: y)
+        view.panSelectionHandler(drag)
+        #expect(view.getSelection() == "01234")
+    }
+
+    #if targetEnvironment(macCatalyst)
+    // MARK: - The pointer selects (Mac Catalyst)
 
     /// On a Mac a click-drag selects, from where the button went down; it
     /// selected nothing (the scroll view's pan took the drag and dragged the
@@ -137,6 +230,24 @@ struct iOSTerminalViewTests {
         view.pointerSelectionDrag(steer)
 
         #expect(view.getSelection() == "hello")
+    }
+
+    /// The pointer's drag to the last column takes the last character
+    /// (see `draggingTheEndHandlePastTheMiddleOfTheLastCellTakesIt`).
+    @Test func thePointersDragPastTheMiddleOfTheLastCellTakesIt() {
+        let view = makeView()
+        feedAFullRow(view)
+        let cols = view.getTerminal().cols
+
+        let steer = SteeredPan(target: nil, action: nil)
+        steer.point = point(view, col: cols - 4, row: 0)
+        steer.state = .began
+        view.pointerSelectionDrag(steer)
+        steer.point = pastTheMiddleOfTheLastCell(view, row: 0)
+        steer.state = .changed
+        view.pointerSelectionDrag(steer)
+
+        #expect(view.getSelection() == "WXYZ")
     }
 
     /// No handles: the pointer drags the selection.

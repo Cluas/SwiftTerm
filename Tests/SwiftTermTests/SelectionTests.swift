@@ -303,6 +303,24 @@ final class SelectionTests: TerminalDelegate {
 
     /// Test drag extend moves end position
     /// From Ghostty: selection adjustment
+    /// A selection's end is exclusive: one that takes a row's last cell
+    /// ends at `cols`. `setSelection` capped it at `cols - 1`, so a range a
+    /// host set (a search match among them) lost the row's last cell, as
+    /// Select All and a triple-click did (B98, B183). An end past the last
+    /// line is the end of the last line.
+    @Test func testSetSelectionKeepsTheRowsLastCell() {
+        let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 10, rows: 5))
+        let selection = SelectionService(terminal: terminal)
+        terminal.feed(text: "0123456789\r\nabc")
+
+        selection.setSelection(start: Position(col: 5, row: 0), end: Position(col: 10, row: 0))
+        #expect(selection.getSelectedText() == "56789")
+
+        selection.setSelection(start: Position(col: 1, row: 1), end: Position(col: 0, row: 9))
+        #expect(selection.end == Position(col: 10, row: 4))
+        #expect(selection.getSelectedText() == "bc")
+    }
+
     @Test func testDragExtendMovesEnd() {
         let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 10, rows: 5))
         let selection = SelectionService(terminal: terminal)

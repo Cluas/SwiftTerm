@@ -807,7 +807,7 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
                 if selection.pivot == nil {
                     selection.pivot = selection.start
                 }
-                selection.pivotExtend(bufferPosition: hit)
+                selection.pivotExtend(bufferPosition: calculateSelectionHit(gesture: gestureRecognizer))
                 queuePendingDisplay()
             }
         case .ended:
@@ -867,6 +867,28 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
             return (Position(col: 0, row: 0), toInt (point))
         }
         return (Position(col: min (max (0, col), terminal.cols-1), row: row), toInt (point))
+    }
+
+    /// Where a selection drag at `point` puts the end it moves: on the edge
+    /// between two cells nearest the point, as text selection does (and
+    /// xterm.js, which rounds the same way), a column from 0 to `cols`; a
+    /// buffer-relative row, as `calculateTapHit` has it. A selection's end
+    /// is exclusive: set to the cell under the finger and capped at
+    /// `cols - 1` (`calculateTapHit`), it never took that cell, and a drag
+    /// could not take a row's last character at all.
+    func calculateSelectionHit (point: CGPoint) -> Position
+    {
+        let row = Int (point.y / cellDimension.height)
+        if row < 0 {
+            return Position (col: 0, row: 0)
+        }
+        let edge = Int ((point.x / cellDimension.width - 0.5).rounded (.up))
+        return Position (col: min (max (0, edge), terminal.cols), row: row)
+    }
+
+    func calculateSelectionHit (gesture: UIGestureRecognizer) -> Position
+    {
+        calculateSelectionHit (point: gesture.location (in: self))
     }
 
     func encodeFlags (release: Bool) -> Int
@@ -1179,7 +1201,7 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
                     extend = true
                 }
                 if extend {
-                    selection.pivotExtend(bufferPosition: hit)
+                    selection.pivotExtend(bufferPosition: calculateSelectionHit(gesture: gestureRecognizer))
                     requestDisplay()
                     break
                 }
@@ -1190,7 +1212,7 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
             let hit = calculateTapHit(gesture: gestureRecognizer).grid
             if selection.active {
                 stopSelectionTimer()
-                selection.pivotExtend(bufferPosition: hit)
+                selection.pivotExtend(bufferPosition: calculateSelectionHit(gesture: gestureRecognizer))
                 gestureRecognizer.setTranslation(CGPoint.zero, in: self)
                 if absoluteY < 0 || absoluteY > bounds.height {
                     startSelectionTimer {
@@ -1331,12 +1353,12 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
             panMouseHandler (gestureRecognizer)
             return
         }
-        let hit = calculateTapHit (gesture: gestureRecognizer).grid
+        let hit = calculateSelectionHit (gesture: gestureRecognizer)
         switch gestureRecognizer.state {
         case .began:
             let down = (gestureRecognizer as? PointerDragRecognizer)?.downLocation ?? gestureRecognizer.location (in: self)
             hideContextMenu ()
-            selection.setSoftStart (bufferPosition: calculateTapHit (point: down).grid)
+            selection.setSoftStart (bufferPosition: calculateSelectionHit (point: down))
             selection.startSelection ()
             selection.dragExtend (bufferPosition: hit)
         case .changed:
