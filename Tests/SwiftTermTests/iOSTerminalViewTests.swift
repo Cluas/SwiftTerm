@@ -186,15 +186,33 @@ struct iOSTerminalViewTests {
         #expect(host.sent == [[9], [0x1b, 0x5b, 0x5a]])
     }
 
-    /// With the app active the keyboard focus took Shift-Tab: the view's key
-    /// commands for Tab and Shift-Tab come before the system's own use of
-    /// them.
+    /// Escape comes as AppKit's cancelOperation: on a Mac with the app
+    /// active: it went nowhere. It is the key's byte now, or the kitty
+    /// protocol's press and release.
+    @Test func escapeAsAMacCommandReachesTheRemote() {
+        let view = makeView()
+        let host = Host()
+        view.terminalDelegate = host
+        #expect(view.canPerformAction(NSSelectorFromString("cancelOperation:"), withSender: nil))
+
+        view.cancelOperation(nil)
+        #expect(host.sent == [[0x1b]])
+
+        view.feed(text: "\u{1b}[>3u")
+        host.sent = []
+        view.cancelOperation(nil)
+        #expect(host.sent == [Array("\u{1b}[27u".utf8), Array("\u{1b}[27;1:3u".utf8)])
+    }
+
+    /// With the app active the keyboard focus took Shift-Tab, and the text
+    /// system took Escape as "stop editing": the view's key commands for the
+    /// keys come before the system's own use of them.
     @Test func theMacsOwnKeysComeToTheViewFirst() throws {
         let commands = makeView().keyCommands ?? []
         func command(_ input: String, _ flags: UIKeyModifierFlags) -> UIKeyCommand? {
             commands.first { $0.input == input && $0.modifierFlags == flags }
         }
-        for (input, flags) in [("\t", UIKeyModifierFlags()), ("\t", .shift)] {
+        for (input, flags) in [("\t", UIKeyModifierFlags()), ("\t", .shift), (UIKeyCommand.inputEscape, UIKeyModifierFlags())] {
             let found = try #require(command(input, flags), "no key command for \(input.debugDescription) \(flags.rawValue)")
             #expect(found.wantsPriorityOverSystemBehavior)
         }

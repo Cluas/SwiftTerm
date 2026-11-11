@@ -624,7 +624,7 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         case #selector(resetCmd(_:)):
             return true
         #if targetEnvironment(macCatalyst)
-        case #selector(insertTab(_:)), #selector(insertBacktab(_:)):
+        case #selector(insertTab(_:)), #selector(insertBacktab(_:)), #selector(cancelOperation(_:)):
             return true
         #endif
         default:
@@ -639,10 +639,13 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     // On a Mac, with the app active, the system has its own uses for some
     // keys and sees them before the view does (measured with the app active
     // and key events posted to it): the keyboard focus took Shift-Tab, which
-    // never reached the remote. Key commands with priority over the system
+    // never reached the remote, and the text system took Escape as "stop
+    // editing", resigning the terminal (the keyboard went, and the keys after
+    // it went nowhere). Key commands with priority over the system
     // (wantsPriorityOverSystemBehavior) come first, and send what the keys'
     // presses send. AppKit may also hand the keys over as editing commands
-    // (insertTab:, insertBacktab:, spike G4), answered the same way.
+    // (insertTab:, insertBacktab:, cancelOperation:, spike G4), answered the
+    // same way.
 
     @objc open func insertTab (_ sender: Any?) {
         sendCommandKey (.tab, modifiers: [], legacy: [9])
@@ -652,12 +655,18 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         sendCommandKey (.tab, modifiers: [.shift], legacy: EscapeSequences.cmdBackTab)
     }
 
+    /// Escape (also AppKit's cancelOperation:, which ⌘. sends too).
+    @objc open func cancelOperation (_ sender: Any?) {
+        sendCommandKey (.escape, modifiers: [], legacy: [0x1b])
+    }
+
     open override var keyCommands: [UIKeyCommand]? {
         (super.keyCommands ?? []) + TerminalView.macKeyCommands
     }
 
     static let macKeyCommands: [UIKeyCommand] = {
         let made = [
+            UIKeyCommand (input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(cancelOperation(_:))),
             UIKeyCommand (input: "\t", modifierFlags: [], action: #selector(insertTab(_:))),
             UIKeyCommand (input: "\t", modifierFlags: [.shift], action: #selector(insertBacktab(_:))),
         ]
