@@ -520,6 +520,12 @@ public final class Buffer {
             savedX = min (savedX, newCols - 1)
 
             scrollTop = 0
+        } else if newMaxLength < lines.maxLength {
+            // An empty list takes the new size too: the alternate screen is
+            // empty while the normal one shows, and kept the room it had
+            // (the terminal makes it 25 rows tall before its own size
+            // applies), which the next program on it filled as history.
+            lines.maxLength = newMaxLength
         }
         scrollBottom = newRows - 1
         if tabStops.count > newCols {
