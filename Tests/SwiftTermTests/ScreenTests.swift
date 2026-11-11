@@ -280,6 +280,35 @@ final class ScreenTests {
         }
     }
 
+    /// Text that runs past the last column above the bottom row goes on in
+    /// the row under it, which is marked as continuing it. The mark went on
+    /// the line whose index in the whole buffer is that screen row's number
+    /// (upstream, inherited from xterm.js): with history above the screen, a
+    /// line of the history, which then copied run together with the line
+    /// before it, while the row that does continue the text stayed unmarked:
+    /// the long line copied as two and a resize could not join it back. After
+    /// Ctrl-L, and in any full-screen program, that is every wrap. Both ways
+    /// text is written: a run of ASCII, and one character at a time.
+    @Test(arguments: ["AAAAAAAAAABBB", "ééééééééééèèè"])
+    func testAutowrapAboveTheBottomRowMarksTheRowItRunsOnTo(_ text: String) {
+        let (terminal, _) = TerminalTestHarness.makeTerminal(cols: 10, rows: 4, scrollback: 20)
+        let buffer = terminal.buffer
+        for i in 0 ..< 8 {
+            terminal.feed(text: "h\(i)\r\n")
+        }
+        #expect(buffer.yBase > 3, "history above the screen")
+        // Ctrl-L: the screen is cleared and the prompt is on its top row.
+        terminal.feed(text: "\(esc)[H\(esc)[2J")
+
+        terminal.feed(text: text)
+
+        #expect(TerminalTestHarness.isWrapped(buffer: buffer, row: 1) == true,
+                "the row the text runs on to is not marked as continuing it")
+        #expect(copiedText(terminal, lines: buffer.yBase, buffer.yBase + 1) == text)
+        #expect(!buffer.lines[1].isWrapped, "a line of history was marked as continuing the one before it")
+        #expect(copiedText(terminal, lines: 0, 1) == "h0\nh1")
+    }
+
     /// Test ED 2 - Erase entire screen
     /// From Ghostty: Screen clearRows active multi line
     @Test func testEraseDisplayAll() {

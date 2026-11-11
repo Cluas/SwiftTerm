@@ -1143,8 +1143,9 @@ public final class Buffer {
                 if _y >= _scrollBottom {
                     scroll(true)
                 } else {
+                    // `_y` is a screen row: its line is `_y + _yBase`.
                     _y += 1
-                    _lines[_y].isWrapped = true
+                    _lines[_y + _yBase].isWrapped = true
                 }
             }
             let available = right - _x + 1
@@ -1216,9 +1217,10 @@ public final class Buffer {
                     scroll (true)
                 } else {
                     // The line already exists (eg. the initial viewport), mark it as a
-                    // wrapped line
+                    // wrapped line. `_y` is a screen row: with history above the
+                    // screen, a bare `_y` named a line of the history.
                     _y += 1
-                    _lines [_y].isWrapped = true
+                    _lines [_y + _yBase].isWrapped = true
                 }
                 // row changed, get it again
             } else {
