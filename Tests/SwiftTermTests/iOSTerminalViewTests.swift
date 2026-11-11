@@ -146,6 +146,74 @@ struct iOSTerminalViewTests {
     }
     #endif
 
+    // MARK: - Tab
+
+    /// What the view sends its host.
+    final class Host: NSObject, TerminalViewDelegate {
+        var sent: [[UInt8]] = []
+        func send(source: TerminalView, data: ArraySlice<UInt8>) { sent.append(Array(data)) }
+        func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {}
+        func setTerminalTitle(source: TerminalView, title: String) {}
+        func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
+        func scrolled(source: TerminalView, position: Double) {}
+        func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {}
+        func bell(source: TerminalView) {}
+        func clipboardCopy(source: TerminalView, content: Data) {}
+        func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {}
+        func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
+    }
+
+    /// The terminal takes Tab itself; as a stop of UIKit's keyboard focus,
+    /// Tab also moved the focus on, and the keyboard with it (a Mac, G4).
+    @Test func theTerminalIsNoStopOfTheKeyboardFocus() {
+        #expect(!makeView().canBecomeFocused)
+    }
+
+    #if targetEnvironment(macCatalyst)
+    /// On a Mac with the app active, Tab and Shift-Tab come as AppKit's
+    /// commands, not presses; answered, they are the keys' bytes, and the
+    /// commands go nowhere else (AppKit's own Tab moved the focus).
+    @Test func tabAndShiftTabAsMacCommandsReachTheRemote() {
+        let view = makeView()
+        let host = Host()
+        view.terminalDelegate = host
+        #expect(view.canPerformAction(NSSelectorFromString("insertTab:"), withSender: nil))
+        #expect(view.canPerformAction(NSSelectorFromString("insertBacktab:"), withSender: nil))
+
+        view.insertTab(nil)
+        view.insertBacktab(nil)
+
+        #expect(host.sent == [[9], [0x1b, 0x5b, 0x5a]])
+    }
+
+    /// With the app active the keyboard focus took Shift-Tab: the view's key
+    /// commands for Tab and Shift-Tab come before the system's own use of
+    /// them.
+    @Test func theMacsOwnKeysComeToTheViewFirst() throws {
+        let commands = makeView().keyCommands ?? []
+        func command(_ input: String, _ flags: UIKeyModifierFlags) -> UIKeyCommand? {
+            commands.first { $0.input == input && $0.modifierFlags == flags }
+        }
+        for (input, flags) in [("\t", UIKeyModifierFlags()), ("\t", .shift)] {
+            let found = try #require(command(input, flags), "no key command for \(input.debugDescription) \(flags.rawValue)")
+            #expect(found.wantsPriorityOverSystemBehavior)
+        }
+    }
+
+    /// With the kitty keyboard protocol on, as a press would be encoded.
+    @Test func tabAsAMacCommandSpeaksTheKittyProtocolWhenItIsOn() {
+        let view = makeView()
+        let host = Host()
+        view.terminalDelegate = host
+        view.feed(text: "\u{1b}[>1u")
+        host.sent = []
+
+        view.insertBacktab(nil)
+
+        #expect(host.sent == [Array("\u{1b}[9;2u".utf8)])
+    }
+    #endif
+
     // MARK: - Text input traits
 
     /// The terminal's text input said nothing of what it is (a nil content

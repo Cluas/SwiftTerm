@@ -623,11 +623,67 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
             return true
         case #selector(resetCmd(_:)):
             return true
+        #if targetEnvironment(macCatalyst)
+        case #selector(insertTab(_:)), #selector(insertBacktab(_:)):
+            return true
+        #endif
         default:
             //print ("canPerformAction invoked for \(action)")
             return false
         }
     }
+
+    #if targetEnvironment(macCatalyst)
+    // MARK: Keys a Mac takes for itself (Mac Catalyst)
+    //
+    // On a Mac, with the app active, the system has its own uses for some
+    // keys and sees them before the view does (measured with the app active
+    // and key events posted to it): the keyboard focus took Shift-Tab, which
+    // never reached the remote. Key commands with priority over the system
+    // (wantsPriorityOverSystemBehavior) come first, and send what the keys'
+    // presses send. AppKit may also hand the keys over as editing commands
+    // (insertTab:, insertBacktab:, spike G4), answered the same way.
+
+    @objc open func insertTab (_ sender: Any?) {
+        sendCommandKey (.tab, modifiers: [], legacy: [9])
+    }
+
+    @objc open func insertBacktab (_ sender: Any?) {
+        sendCommandKey (.tab, modifiers: [.shift], legacy: EscapeSequences.cmdBackTab)
+    }
+
+    open override var keyCommands: [UIKeyCommand]? {
+        (super.keyCommands ?? []) + TerminalView.macKeyCommands
+    }
+
+    static let macKeyCommands: [UIKeyCommand] = {
+        let made = [
+            UIKeyCommand (input: "\t", modifierFlags: [], action: #selector(insertTab(_:))),
+            UIKeyCommand (input: "\t", modifierFlags: [.shift], action: #selector(insertBacktab(_:))),
+        ]
+        for command in made {
+            command.wantsPriorityOverSystemBehavior = true
+        }
+        return made
+    }()
+
+    /// A key that came as a command, encoded as pressesBegan encodes its
+    /// press: the kitty keyboard protocol's press (and release, if the
+    /// program asked for releases) when it is on, the legacy bytes when not.
+    func sendCommandKey (_ key: KittyFunctionalKey, modifiers: KittyKeyboardModifiers, legacy: [UInt8])
+    {
+        if !terminal.keyboardEnhancementFlags.isEmpty {
+            var event = KittyKeyEvent (key: .functional (key), modifiers: modifiers, eventType: .press,
+                                       text: nil, shiftedKey: nil, baseLayoutKey: nil, composing: kittyIsComposing)
+            if sendKittyEvent (event) {
+                event.eventType = .release
+                sendKittyEvent (event)
+                return
+            }
+        }
+        send (legacy)
+    }
+    #endif
     
     /// Shows the context menu for the terminal, the arguments play a key role:
     /// - Parameters:
@@ -2102,8 +2158,13 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         true
     }
     
+    /// Never a stop of the keyboard's focus. A terminal takes Tab itself
+    /// (the shell completes with it), and as a focusable item the Tab the
+    /// view sent to the remote also moved UIKit's focus to the next item,
+    /// which took the keyboard from the terminal (measured on a Mac, spike
+    /// G4; an iPad with keyboard navigation moves focus the same way).
     open override var canBecomeFocused: Bool {
-        true
+        false
     }
     
     /// Always true for a terminal.
