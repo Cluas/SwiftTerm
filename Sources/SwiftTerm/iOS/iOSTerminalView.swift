@@ -798,6 +798,10 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         case .began:
             selection.selectWordOrExpression(at: hit, in: terminal.displayBuffer)
             selection.selectionMode = .character
+            // The slide extends from this word: the pivot a selection before
+            // it left (one still showing) made it reach back to where that
+            // one began.
+            selection.pivot = selection.start
             enableSelectionPanGesture()
             queuePendingDisplay()
         case .changed:

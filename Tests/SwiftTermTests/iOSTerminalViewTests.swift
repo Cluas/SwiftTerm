@@ -184,6 +184,35 @@ struct iOSTerminalViewTests {
         #expect(selected.hasPrefix("abcd") && selected.hasSuffix("WXYZ"), "\(selected.suffix(4).debugDescription)")
     }
 
+    /// A long press selects the word under the finger, and sliding extends
+    /// the selection from that word. It extended from the pivot the last
+    /// selection had left: a long press while a selection showed, then a
+    /// slide, took everything from where the old selection began.
+    @Test func aLongPressSlidesFromItsOwnWord() {
+        let view = makeView()
+        view.feed(text: "first\r\nsecond\r\n    abcd efgh")
+        let press = SteeredLongPress(target: nil, action: nil)
+        // A word long-pressed and slid on: that selection shows.
+        press.point = point(view, col: 1, row: 0)
+        press.state = .began
+        view.longPress(press)
+        press.point = point(view, col: 3, row: 1)
+        press.state = .changed
+        view.longPress(press)
+        #expect(view.getSelection() == "first\nsec")
+
+        // Another word, long-pressed while it shows.
+        press.point = point(view, col: 5, row: 2)
+        press.state = .began
+        view.longPress(press)
+        #expect(view.getSelection() == "abcd")
+        press.point = point(view, col: 10, row: 2)
+        press.state = .changed
+        view.longPress(press)
+
+        #expect(view.getSelection() == "abcd e", "the slide went on from the selection before")
+    }
+
     /// The end goes to the nearest edge on the way back too: short of the
     /// middle of a cell the cell is not taken, past it it is.
     @Test func aDragTakesTheCellsUpToTheNearestEdge() {
