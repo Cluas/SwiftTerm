@@ -469,5 +469,53 @@ struct iOSTerminalViewTests {
             #expect(trait(view, "writingToolsBehavior") == UIWritingToolsBehavior.none.rawValue)
         }
     }
+
+    // MARK: - The Command key
+
+    /// A key of a hardware keyboard, as UIKit hands it over in a press.
+    final class FakeKey: UIKey {
+        private let code: UIKeyboardHIDUsage
+        private let flags: UIKeyModifierFlags
+        init(_ code: UIKeyboardHIDUsage, flags: UIKeyModifierFlags = []) {
+            self.code = code
+            self.flags = flags
+            super.init()
+        }
+        required init?(coder: NSCoder) { nil }
+        override var keyCode: UIKeyboardHIDUsage { code }
+        override var modifierFlags: UIKeyModifierFlags { flags }
+        override var characters: String { "" }
+        override var charactersIgnoringModifiers: String { "" }
+    }
+
+    final class FakePress: UIPress {
+        private let pressed: UIKey
+        init(_ key: UIKey) {
+            pressed = key
+            super.init()
+        }
+        override var key: UIKey? { pressed }
+    }
+
+    /// A press UIKit takes back (⌘-Tab took the app away with the key down,
+    /// the system claimed the key) never ends. For Command the view went on
+    /// as if it were held, and so did every press after it, until that key
+    /// went down and up again: links underlined and opened on a plain click
+    /// as on a ⌘-click (the ...WithModifier link modes), and hovering
+    /// reported links as with ⌘ held.
+    @Test func aCancelledCommandPressIsNotHeld() {
+        let view = makeView()
+        let command = FakePress(FakeKey(.keyboardLeftGUI, flags: .command))
+        view.pressesBegan([command], with: nil)
+        #expect(view.commandActive)
+
+        view.pressesCancelled([command], with: nil)
+        #expect(!view.commandActive, "⌘ is held for the view after its press was cancelled")
+
+        let letter = FakePress(FakeKey(.keyboardA))
+        view.pressesBegan([letter], with: nil)
+        #expect(!view.commandActive, "a press after it is taken as a ⌘ press")
+        view.pressesEnded([letter], with: nil)
+    }
 }
 #endif

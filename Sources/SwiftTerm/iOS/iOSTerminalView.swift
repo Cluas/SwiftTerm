@@ -3119,10 +3119,45 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     public override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         // A press UIKit took back (the app lost the keyboard with the key
         // down, the system claimed the key) never ends: without this, the key
-        // went on repeating until the view lost the keyboard.
+        // went on repeating until the view lost the keyboard, and a Command
+        // key stayed held for the view (links opened on a plain click as on
+        // a ⌘-click) until that key went down and up again.
         keyRepeat?.invalidate()
         keyRepeat = nil
+        commandKeysUp(in: presses)
         super.pressesCancelled(presses, with: event)
+    }
+
+    /// The Command keys among `presses` are up, ended or taken back:
+    /// `commandActive` follows the ones still down.
+    private func commandKeysUp(in presses: Set<UIPress>) {
+        let wasCommandActive = commandActive
+        for press in presses {
+            guard let key = press.key else { continue }
+            switch key.keyCode {
+            case .keyboardLeftGUI, .keyboardRightGUI:
+                activeCommandKeys.remove(key.keyCode)
+            default:
+                break
+            }
+        }
+        commandActive = !activeCommandKeys.isEmpty
+        if !commandActive {
+            lastReportedLink = nil
+            if linkHighlightMode == .hoverWithModifier {
+                let oldRange = linkHighlightRange
+                linkHighlightRange = nil
+                invalidateLinkHighlight(oldRange: oldRange, newRange: nil)
+            }
+        }
+        if commandActive != wasCommandActive {
+            if linkHighlightMode == .alwaysWithModifier {
+                terminal.updateFullScreen()
+            }
+            if linkHighlightMode == .alwaysWithModifier || linkHighlightMode == .hoverWithModifier {
+                queuePendingDisplay()
+            }
+        }
     }
 
     private struct PendingKittyKeyEvent {
@@ -3391,33 +3426,7 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     public override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         keyRepeat?.invalidate()
         keyRepeat = nil
-        let wasCommandActive = commandActive
-        for press in presses {
-            guard let key = press.key else { continue }
-            switch key.keyCode {
-            case .keyboardLeftGUI, .keyboardRightGUI:
-                activeCommandKeys.remove(key.keyCode)
-            default:
-                break
-            }
-        }
-        commandActive = !activeCommandKeys.isEmpty
-        if !commandActive {
-            lastReportedLink = nil
-            if linkHighlightMode == .hoverWithModifier {
-                let oldRange = linkHighlightRange
-                linkHighlightRange = nil
-                invalidateLinkHighlight(oldRange: oldRange, newRange: nil)
-            }
-        }
-        if commandActive != wasCommandActive {
-            if linkHighlightMode == .alwaysWithModifier {
-                terminal.updateFullScreen()
-            }
-            if linkHighlightMode == .alwaysWithModifier || linkHighlightMode == .hoverWithModifier {
-                queuePendingDisplay()
-            }
-        }
+        commandKeysUp(in: presses)
         let flags = terminal.keyboardEnhancementFlags
         if flags.contains(.reportEvents) {
             for press in presses {
