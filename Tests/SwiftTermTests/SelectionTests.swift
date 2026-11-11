@@ -215,6 +215,66 @@ final class SelectionTests: TerminalDelegate {
         #expect(selection.start.row == 0)
     }
 
+    /// The lines the normal buffer has made, in use or not.
+    private func linesMade(_ terminal: Terminal) -> Int {
+        terminal.normalBuffer.lines.getArray().reduce(0) { $0 + ($1 == nil ? 0 : 1) }
+    }
+
+    /// A terminal with a 10 000-line history (Moshpit's) holding a hundred
+    /// lines of output and a prompt.
+    private func terminalWithShortHistory() -> Terminal {
+        let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 80, rows: 24, scrollback: 10_000))
+        for i in 0 ..< 100 {
+            terminal.feed(text: "line \(i)\r\n")
+        }
+        terminal.feed(text: "$ ")
+        return terminal
+    }
+
+    /// Select All ends on the last line with anything on it. It ended on the
+    /// last line the scrollback could hold, 10 023 here, where 101 lines
+    /// exist: past them every row is a slot for a line nobody wrote.
+    @Test func testSelectAllEndsOnTheLastLineWithContent() {
+        let terminal = terminalWithShortHistory()
+        let selection = SelectionService(terminal: terminal)
+
+        selection.selectAll()
+
+        #expect(selection.active)
+        #expect(selection.start == Position(col: 0, row: 0))
+        #expect(selection.end.row == 100, "the prompt's line is the last with content, not \(selection.end.row)")
+    }
+
+    /// Copying a Select All visits the selection's rows, and the hyperlink
+    /// stitching (patch 22) every one of its cells: on rows past the output
+    /// that made a line per slot, 10 024 lines of 80 cells, about 20 MB that
+    /// stayed in the buffer, plus a position per cell for the stitching.
+    @Test func testCopyingSelectAllMakesNoLinesPastTheOutput() {
+        let terminal = terminalWithShortHistory()
+        let selection = SelectionService(terminal: terminal)
+        let before = linesMade(terminal)
+
+        selection.selectAll()
+        let text = selection.getSelectedText()
+
+        #expect(linesMade(terminal) == before, "\(linesMade(terminal) - before) lines made by a copy")
+        let expected = (0 ..< 100).map { "line \($0)" }.joined(separator: "\n") + "\n$ "
+        #expect(text == expected)
+    }
+
+    /// The selection's end is exclusive. Select All ended at the last
+    /// column, so a last line that fills the row lost its last character:
+    /// the bottom row of a full-screen program's screen, for one.
+    @Test func testSelectAllCopiesTheLastCellOfTheLastLine() {
+        let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 10, rows: 3))
+        let selection = SelectionService(terminal: terminal)
+        terminal.feed(text: "top\r\n\r\n0123456789")
+
+        selection.selectAll()
+
+        #expect(selection.getSelectedText() == "top\n\n0123456789")
+    }
+
     /// Test drag extend moves end position
     /// From Ghostty: selection adjustment
     @Test func testDragExtendMovesEnd() {

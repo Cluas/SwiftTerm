@@ -287,8 +287,19 @@ class SelectionService: CustomDebugStringConvertible {
      */
     public func selectAll ()
     {
+        // To the last line with anything on it, not to the end of the
+        // scrollback the buffer could hold: past the output there are only
+        // slots for lines nobody wrote, and the copy's link stitching, which
+        // visits every selected cell, made a line for each one.
+        let buffer = terminal.displayBuffer
+        var last = buffer.lines.count - 1
+        while last > 0 && !buffer.lines [last].hasAnyContent () {
+            last -= 1
+        }
         start = Position(col: 0, row: 0)
-        end = Position(col: terminal.cols-1, row: terminal.displayBuffer.lines.maxLength - 1)
+        // `end` is exclusive: `cols - 1` left the last line's last cell out
+        // of the copy.
+        end = Position(col: terminal.cols, row: max (last, 0))
         setActiveAndNotify()
     }
     
@@ -591,10 +602,9 @@ class SelectionService: CustomDebugStringConvertible {
         // the link is looked up from the first linked cell inside it, and
         // "inside one link" is judged on the cells that have content.
         let buffer = terminal.displayBuffer
-        let cells = selectedCells(from: min, to: max, in: buffer)
-        guard let anchor = cells.first(where: { buffer.getChar(atBufferRelative: $0).hasPayload }),
+        guard let anchor = firstCell(from: min, to: max, in: buffer, where: { buffer.getChar(atBufferRelative: $0).hasPayload }),
               let span = terminal.explicitLinkSpan(at: anchor, in: buffer),
-              let lastContent = cells.last(where: { !isBlank($0, in: buffer) }),
+              let lastContent = lastCell(from: min, to: max, in: buffer, where: { !isBlank($0, in: buffer) }),
               Position.compare(span.start, anchor) != .after,
               Position.compare(lastContent, span.end) == .before else {
             return nil
@@ -607,18 +617,54 @@ class SelectionService: CustomDebugStringConvertible {
         return span.url.contains(joined) ? joined : nil
     }
 
-    /// Every cell of the selection in reading order; `max` is exclusive.
-    private func selectedCells (from min: Position, to max: Position, in buffer: Buffer) -> [Position] {
-        var cells: [Position] = []
-        for row in min.row...max.row {
-            let first = row == min.row ? min.col : 0
-            let last = row == max.row ? max.col : terminal.cols
-            guard first < last else { continue }
-            for col in first..<last {
-                cells.append(Position(col: col, row: row))
+    /// The selected columns of `row`, for a selection from `lower` to
+    /// `upper`; `upper` is exclusive.
+    private func selectedColumns (row: Int, from lower: Position, to upper: Position) -> Range<Int> {
+        let first = row == lower.row ? lower.col : 0
+        let last = row == upper.row ? upper.col : terminal.cols
+        return first < last ? first..<last : first..<first
+    }
+
+    /// The rows of the selection that the buffer has: a row past its last
+    /// line is a slot nobody wrote, and reading it would make the line.
+    private func selectedRows (from lower: Position, to upper: Position, in buffer: Buffer) -> ClosedRange<Int>? {
+        let last = Swift.min (upper.row, buffer.lines.count - 1)
+        return lower.row <= last ? lower.row...last : nil
+    }
+
+    /// The first cell of the selection, in reading order, that `matches`;
+    /// `upper` is exclusive. The cells are walked, not listed: a selection
+    /// can hold the whole history, and a position per cell of it was tens of
+    /// megabytes.
+    private func firstCell (from lower: Position, to upper: Position, in buffer: Buffer, where matches: (Position) -> Bool) -> Position? {
+        guard let rows = selectedRows (from: lower, to: upper, in: buffer) else {
+            return nil
+        }
+        for row in rows {
+            for col in selectedColumns (row: row, from: lower, to: upper) {
+                let position = Position (col: col, row: row)
+                if matches (position) {
+                    return position
+                }
             }
         }
-        return cells
+        return nil
+    }
+
+    /// The last cell of the selection that `matches`.
+    private func lastCell (from lower: Position, to upper: Position, in buffer: Buffer, where matches: (Position) -> Bool) -> Position? {
+        guard let rows = selectedRows (from: lower, to: upper, in: buffer) else {
+            return nil
+        }
+        for row in rows.reversed () {
+            for col in selectedColumns (row: row, from: lower, to: upper).reversed () {
+                let position = Position (col: col, row: row)
+                if matches (position) {
+                    return position
+                }
+            }
+        }
+        return nil
     }
 
     private func isBlank (_ position: Position, in buffer: Buffer) -> Bool {
