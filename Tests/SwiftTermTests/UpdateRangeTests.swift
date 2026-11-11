@@ -208,20 +208,22 @@ final class UpdateRangeTests: TerminalDelegate {
                 "the whole screen must repaint, range \(range.map { "\($0.startY)...\($0.endY)" } ?? "none")")
     }
 
-    /// DECCOLM (`CSI ? 3 h` / `CSI ? 3 l`, 132 and 80 columns) resizes and
-    /// then resets: the same fresh buffer, the same word owed to the view.
+    /// DECCOLM (`CSI ? 3 h` / `CSI ? 3 l`, 132 and 80 columns) changes the
+    /// columns, which rewraps the history and can move the viewport, and
+    /// clears the screen: the whole screen repaints and the view hears where
+    /// the viewport is. It keeps the history and replaces no buffer (it was
+    /// a full reset; ColumnModeTests).
     @Test(arguments: ["\u{1b}[?3h", "\u{1b}[?3l"])
-    func columnModeMovesTheViewportAndRepaintsIt(sequence: String) {
+    func columnModeTellsTheViewWhereTheViewportIsAndRepaintsIt(sequence: String) {
         let t = terminalWithHistory(at: .inHistory)
 
         t.clearUpdateRange()
         announcedYDisp = nil
         t.feed(text: sequence)
 
-        #expect(t.displayBuffer.lines.count == t.rows, "DECCOLM resets: no history")
-        #expect(t.displayBuffer.yDisp == 0)
-        #expect(announcedYDisp == 0, "the view was not told where the viewport went")
-        #expect(resets == 1, "the view was not told the buffers were replaced")
+        #expect(t.displayBuffer.lines.count > t.rows, "DECCOLM keeps the history")
+        #expect(announcedYDisp == t.displayBuffer.yDisp, "the view was not told where the viewport is")
+        #expect(resets == 0, "no buffer was replaced")
         let range = t.getUpdateRange()
         #expect(range.map { $0.startY <= 0 && $0.endY >= t.rows - 1 } == true,
                 "the whole screen must repaint, range \(range.map { "\($0.startY)...\($0.endY)" } ?? "none")")

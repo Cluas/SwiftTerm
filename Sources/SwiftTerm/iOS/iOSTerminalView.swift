@@ -3209,6 +3209,11 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     }
   
     open func sizeChanged(source: Terminal) {
+        // The terminal changed its own columns (DECCOLM) and cleared the
+        // screen: a selection names text that was rewrapped or erased, as
+        // when the view itself resizes, which drops it too.
+        selection?.selectNone()
+        disableSelectionPanGesture()
         DispatchQueue.main.async {
             self.terminalDelegate?.sizeChanged(source: self, newCols: source.cols, newRows: source.rows)
             self.updateScroller()

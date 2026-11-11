@@ -2350,6 +2350,10 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
     }
     
     public func sizeChanged(source: Terminal) {
+        // The terminal changed its own columns (DECCOLM) and cleared the
+        // screen: a selection names text that was rewrapped or erased, as
+        // when the view itself resizes, which drops it too.
+        selection?.selectNone()
         terminalDelegate?.sizeChanged(source: self, newCols: source.cols, newRows: source.rows)
         updateScroller ()
     }

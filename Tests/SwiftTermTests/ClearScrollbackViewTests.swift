@@ -219,22 +219,38 @@ struct ClearScrollbackViewTests {
         #expect(view.getSelection() == "full screen")
     }
 
-    /// A full reset (`ESC c`, and DECCOLM either way) throws the buffer away,
-    /// history and screen. The selection stayed, its rows pointing into the
-    /// fresh buffer: a highlight over blank rows, and a copy of whatever the
-    /// next output put there. The iOS view's own Reset item dropped it; a
-    /// reset the remote sends did not.
+    /// A full reset (`ESC c`) throws the buffer away, history and screen.
+    /// The selection stayed, its rows pointing into the fresh buffer: a
+    /// highlight over blank rows, and a copy of whatever the next output put
+    /// there. The iOS view's own Reset item dropped it; a reset the remote
+    /// sends did not.
     @MainActor
-    @Test(arguments: ["\u{1b}c", "\u{1b}[?3h", "\u{1b}[?3l"])
-    func aFullResetDropsTheSelection(_ reset: String) {
+    @Test func aFullResetDropsTheSelection() {
         let view = viewWithHistory()
         select(view, row: view.terminal.buffer.yBase + 2)
         #expect(view.selectionActive)
 
-        view.feed(text: reset)
+        view.feed(text: "\u{1b}c")
 
         #expect(!view.selectionActive, "the selection survived the buffer it was made in")
         #expect(view.getSelection() == nil)
+    }
+
+    /// DECCOLM either way clears the screen and changes the columns, which
+    /// rewraps the history: a selection goes, as it does when the view
+    /// itself resizes (and as xterm's ClearScreen disowns it).
+    @MainActor
+    @Test(arguments: ["\u{1b}[?3h", "\u{1b}[?3l"])
+    func columnModeDropsTheSelection(_ sequence: String) {
+        let view = viewWithHistory()
+        select(view, row: view.terminal.buffer.yBase + 2)
+        #expect(view.selectionActive)
+
+        view.feed(text: sequence)
+
+        #expect(!view.selectionActive, "the selection survived a cleared screen at another width")
+        #expect(view.getSelection() == nil)
+        #expect(view.terminal.buffer.yBase > 0, "DECCOLM keeps the history")
     }
 }
 #endif

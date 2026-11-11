@@ -99,7 +99,7 @@ public protocol TerminalDelegate: AnyObject {
     /// The default implementation does nothing.
     func linesDropped (source: Terminal, count: Int)
 
-    /// Invoked after a full reset (`ESC c`, DECCOLM) put fresh buffers in place of the
+    /// Invoked after a full reset (`ESC c`) put fresh buffers in place of the
     /// old ones: positions a front end kept into them, such as a selection, point at
     /// nothing now.
     /// The default implementation does nothing.
@@ -4232,9 +4232,7 @@ open class Terminal {
             case 3:
                 if allow80To132 {
                     // DECCOLM
-                    resize (cols: 80, rows: rows)
-                    tdel?.sizeChanged(source: self)
-                    resetToInitialState()
+                    setColumnMode (columns: 80)
                 }
             case 4: // DECSCLM - Jump scroll mode
                 smoothScroll = false
@@ -4323,6 +4321,31 @@ open class Terminal {
                 break
             }
         }
+    }
+
+    /// DECCOLM (`CSI ? 3 h`, 132 columns; `CSI ? 3 l`, 80), when mode 40
+    /// allows it, does what xterm's does (charproc.c: srm_DECCOLM and
+    /// set_column_mode): the columns change, the screen is cleared and its
+    /// lines are single width again, the margins are reset and the cursor
+    /// goes home. The history, the modes and the screen in use (normal or
+    /// alternate) stay as they were; it was a full reset, which threw all
+    /// three away.
+    func setColumnMode (columns: Int)
+    {
+        resize (cols: columns, rows: rows)
+        // ED 2: every row of the screen blank, unwrapped and single width.
+        cmdEraseInDisplay ([2], [])
+        buffer.scrollTop = 0
+        buffer.scrollBottom = rows - 1
+        buffer.marginLeft = 0
+        buffer.marginRight = cols - 1
+        buffer.x = 0
+        buffer.y = 0
+        tdel?.sizeChanged (source: self)
+        // The resize can move the viewport (the history is rewrapped at
+        // the new width); a view that places itself from `yDisp` must hear
+        // where it went, as after a reset.
+        tdel?.scrolled (source: self, yDisp: buffer.yDisp)
     }
 
     //
@@ -4462,9 +4485,7 @@ open class Terminal {
                 
             case 3: // DECCOLM - go to 132 col mode
                 if allow80To132 {
-                    resize (cols: 132, rows: rows)
-                    resetToInitialState()
-                    tdel?.sizeChanged(source: self)
+                    setColumnMode (columns: 132)
                 }
             case 4: // Smooth scroll mode
                 smoothScroll = true

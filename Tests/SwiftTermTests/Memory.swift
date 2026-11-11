@@ -65,12 +65,12 @@ final class SwiftTermMemory {
         #expect(SwiftTermMemory.deinited == true)
     }
 
-    /// A full reset — `ESC c` (what `reset` sends), DECCOLM either way, the
-    /// iOS view's Reset menu item — makes a fresh normal buffer. Its scroll
-    /// callback held the terminal strongly (the one the initializer installs
-    /// holds it weakly), and the terminal holds the buffer: after a single
-    /// reset the terminal, its buffers and its history were never freed.
-    /// No reset at all (`""`) is the control.
+    /// A full reset — `ESC c` (what `reset` sends), the iOS view's Reset
+    /// menu item — makes a fresh normal buffer. Its scroll callback held the
+    /// terminal strongly (the one the initializer installs holds it weakly),
+    /// and the terminal holds the buffer: after a single reset the terminal,
+    /// its buffers and its history were never freed. No reset at all (`""`)
+    /// is the control; DECCOLM, either way, used to be a full reset too.
     @Test(arguments: ["", "\u{1b}c", "\u{1b}[?3h", "\u{1b}[?3l"])
     func testTerminalIsFreedAfterAFullReset(_ reset: String) {
         let delegate = EmptyTerminalDelegate()
