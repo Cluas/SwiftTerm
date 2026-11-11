@@ -457,6 +457,13 @@ open class Terminal {
     /// false by default), which ignores DECCOLM with it off. It was on, so
     /// any remote could make the window 132 or 80 columns wide.
     var allow80To132 = false
+
+    /// Whether DECCOLM changes the columns now: a program allowed it (mode
+    /// 40) and the host leaves the columns to programs
+    /// (`TerminalOptions.hostOwnsColumns`).
+    var columnModeAllowed: Bool {
+        allow80To132 && !options.hostOwnsColumns
+    }
     
     public var parser: EscapeSequenceParser
     var kittyGraphicsState = KittyGraphicsState()
@@ -3423,7 +3430,7 @@ open class Terminal {
             case 30: // RXVT show scrollbar
                 res = modeCouldBeImplementedButReset
             case 40: // Enable 80 to 132 transition
-                res = allow80To132 ? modeSet : modeReset
+                res = columnModeAllowed ? modeSet : modeReset
             case 41: // xterm tab workaround in "more(1)" command
                 res = modeReset
             case 42: // DECNRCM - national character set
@@ -4248,7 +4255,7 @@ open class Terminal {
             case 1:
                 applicationCursor = false
             case 3:
-                if allow80To132 {
+                if columnModeAllowed {
                     // DECCOLM
                     setColumnMode (columns: 80)
                 }
@@ -4502,7 +4509,7 @@ open class Terminal {
                 // set VT100 mode here
                 
             case 3: // DECCOLM - go to 132 col mode
-                if allow80To132 {
+                if columnModeAllowed {
                     setColumnMode (columns: 132)
                 }
             case 4: // Smooth scroll mode

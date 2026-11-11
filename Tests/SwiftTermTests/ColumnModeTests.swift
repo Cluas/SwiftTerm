@@ -159,4 +159,36 @@ final class ColumnModeTests: TerminalDelegate {
         t.feed(text: "\(esc)[?3h")
         #expect(t.cols == 132)
     }
+
+    /// A host whose grid follows its view (`hostOwnsColumns`) keeps the
+    /// columns its own: DECCOLM does nothing even after a program turns
+    /// mode 40 on, and DECRQM says mode 40 is off. Set at the start or on a
+    /// running terminal, after the program allowed DECCOLM. A program could
+    /// make the grid 132 or 80 columns wide whatever the host wanted.
+    @Test(arguments: [true, false])
+    func aHostThatOwnsTheColumnsKeepsThem(fromTheStart: Bool) {
+        let t = Terminal(delegate: self, options: TerminalOptions(cols: 100, rows: 5, scrollback: 50, hostOwnsColumns: fromTheStart))
+        t.feed(text: "\(esc)[?40h")
+        if !fromTheStart {
+            t.options.hostOwnsColumns = true
+        }
+        t.feed(text: "$ prompt")
+
+        for sequence in ["\(esc)[?3h", "\(esc)[?3l"] {
+            t.feed(text: sequence)
+            #expect(t.cols == 100, "\(sequence.debugDescription) made the grid \(t.cols) columns wide")
+            #expect(text(t, line: t.buffer.yBase + t.buffer.y) == "$ prompt", "the screen was cleared")
+        }
+        #expect(sizeChanges == 0)
+
+        responses = []
+        t.feed(text: "\(esc)[?40$p")
+        #expect(responses == ["\(esc)[?40;2$y"], "mode 40 is reported on: \(responses)")
+    }
+
+    /// Off by default: SwiftTerm does as xterm does.
+    @Test func theProgramMayChangeTheColumnsByDefault() {
+        #expect(!TerminalOptions.default.hostOwnsColumns)
+        #expect(!TerminalOptions(cols: 80, rows: 24).hostOwnsColumns)
+    }
 }

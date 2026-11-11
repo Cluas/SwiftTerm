@@ -62,6 +62,14 @@ public struct TerminalOptions {
     public var kittyImageCacheLimitBytes: Int
     /// Strategy used to derive the 256-color palette from the base 16 colors.
     public var ansi256PaletteStrategy: Ansi256PaletteStrategy
+    /// Whether only the host sets the number of columns (default false).
+    /// When true, DECCOLM (`CSI ? 3 h` / `l`) does nothing, not even after a
+    /// program allows it with mode 40 (`CSI ? 40 h`), and DECRQM reports
+    /// mode 40 off: for a host whose grid follows its view, as a phone's
+    /// does. When false, as in xterm, a program that turns mode 40 on may
+    /// make the grid 132 or 80 columns wide. Read whenever a program asks,
+    /// so a host can set it on a running terminal.
+    public var hostOwnsColumns: Bool
     
     /// Default options
     public static let `default` = TerminalOptions.init(cols: 80,
@@ -74,10 +82,12 @@ public struct TerminalOptions {
                                                        tabStopWidth: 8,
                                                        enableSixelReported: true,
                                                        kittyImageCacheLimitBytes: 320 * 1024 * 1024,
-                                                       ansi256PaletteStrategy: .base16Lab)
+                                                       ansi256PaletteStrategy: .base16Lab,
+                                                       hostOwnsColumns: false)
 
   public init(cols: Int = Self.default.cols, rows: Int = Self.default.rows, convertEol: Bool = Self.default.convertEol, termName: String = Self.default.termName, cursorStyle: CursorStyle = Self.default.cursorStyle, screenReaderMode: Bool = Self.default.screenReaderMode, scrollback: Int = Self.default.scrollback, tabStopWidth: Int = Self.default.tabStopWidth,
-              enableSixelReported: Bool = Self.default.enableSixelReported, kittyImageCacheLimitBytes: Int = Self.default.kittyImageCacheLimitBytes, ansi256PaletteStrategy: Ansi256PaletteStrategy = Self.default.ansi256PaletteStrategy) {
+              enableSixelReported: Bool = Self.default.enableSixelReported, kittyImageCacheLimitBytes: Int = Self.default.kittyImageCacheLimitBytes, ansi256PaletteStrategy: Ansi256PaletteStrategy = Self.default.ansi256PaletteStrategy,
+              hostOwnsColumns: Bool = Self.default.hostOwnsColumns) {
         self.cols = cols
         self.rows = rows
         self.convertEol = convertEol
@@ -89,5 +99,6 @@ public struct TerminalOptions {
         self.enableSixelReported = enableSixelReported
         self.kittyImageCacheLimitBytes = kittyImageCacheLimitBytes
         self.ansi256PaletteStrategy = ansi256PaletteStrategy
+        self.hostOwnsColumns = hostOwnsColumns
     }
 }
