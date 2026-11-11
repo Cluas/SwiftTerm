@@ -434,12 +434,32 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     }
 #endif
 
+    /// The display link's target: a display link holds its target, and the
+    /// run loop holds the link until it is invalidated. With the view as the
+    /// target, only `updateUiClosed()` let a view go, so every view a host
+    /// dropped without calling it lived on, with its terminal and its whole
+    /// history. This one holds the view weakly.
+    private final class DisplayLinkTarget: NSObject {
+        weak var view: TerminalView?
+        init (_ view: TerminalView) {
+            self.view = view
+        }
+        @objc func step (displaylink: CADisplayLink) {
+            view?.step (displaylink: displaylink)
+        }
+    }
+
     func setupDisplayUpdates ()
     {
-        link = CADisplayLink(target: self, selector: #selector(step))
+        link = CADisplayLink(target: DisplayLinkTarget(self), selector: #selector(DisplayLinkTarget.step(displaylink:)))
             
         link.add(to: .current, forMode: .default)
         suspendDisplayUpdates()
+    }
+
+    deinit {
+        // Takes the link out of the run loop, and its target with it.
+        link?.invalidate()
     }
 
     private func setupProgressBar() {
