@@ -394,11 +394,25 @@ internal class CircularBufferLineList {
         }
      }
 
+    /// Drops the oldest `count` lines (ED 3, a shorter history, fewer rows).
+    /// The lines go: whoever counts the lines holding images hears of each
+    /// one that held some (`onLineRecycled`), as when a line is recycled,
+    /// and their slots are emptied, so nothing holds a dropped line until
+    /// the history fills up again over it. The count of lines with images
+    /// stayed up once one was trimmed: every scroll after it did the kitty
+    /// placement pass, and every repaint on iOS covered the whole view.
     func trimStart (count: Int)
     {
-        let c = count > self.count ? self.count : count
-        startIndex = startIndex + c
-        self.count -= count
+        let c = max (0, min (count, self.count))
+        for i in 0 ..< c {
+            let index = getCyclicIndex(i)
+            if let line = array [index] {
+                onLineRecycled?(line.images != nil)
+                array [index] = nil
+            }
+        }
+        startIndex = (startIndex + c) % max (array.count, 1)
+        self.count -= c
     }
 
     func shiftElements (start: Int, count: Int, offset: Int) -> Bool

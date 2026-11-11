@@ -172,6 +172,61 @@ final class ImageTrackingTests: TerminalDelegate {
         #expect(buffer.hasAnyImages == false, "hasAnyImages should be false after the line with image was recycled")
     }
 
+    /// Lines dropped from the top of the buffer at once — erasing the saved
+    /// lines (ED 3), a shorter history — no longer hold their images, and
+    /// they no longer count: the count stayed up, so every scroll after it
+    /// did the kitty placement pass and every iOS repaint covered the whole
+    /// view. A line with an image that is kept still counts.
+    @Test func testTrimmedLinesNoLongerCountTheirImages() {
+        func terminalWithImagesInHistory() -> Terminal {
+            let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 20, rows: 5, scrollback: 100))
+            for i in 0 ..< 40 {
+                terminal.feed(text: "Line \(i)\r\n")
+            }
+            terminal.buffer.attachImage(MockTerminalImage(), toLineAt: 3)
+            terminal.buffer.attachImage(MockTerminalImage(), toLineAt: 10)
+            #expect(terminal.buffer.hasAnyImages)
+            return terminal
+        }
+
+        let cleared = terminalWithImagesInHistory()
+        cleared.feed(text: "\u{1b}[3J")
+        #expect(!cleared.buffer.hasAnyImages, "ED 3 erased the lines with images, and they still count")
+
+        let shorter = terminalWithImagesInHistory()
+        shorter.changeScrollback(31)
+        #expect(shorter.buffer.hasAnyImages, "line 10 is still there")
+        shorter.changeScrollback(5)
+        #expect(!shorter.buffer.hasAnyImages, "a shorter history dropped the lines with images, and they still count")
+
+        let kept = terminalWithImagesInHistory()
+        kept.buffer.attachImage(MockTerminalImage(), toLineAt: kept.buffer.yBase + 1)
+        kept.feed(text: "\u{1b}[3J")
+        #expect(kept.buffer.hasAnyImages, "the line with an image on the screen is still there")
+        kept.buffer.clearImagesFromLine(at: kept.buffer.yBase + 1)
+        #expect(!kept.buffer.hasAnyImages, "the count stayed above what the lines hold")
+    }
+
+    /// The trimmed lines are let go: their slots held them until the
+    /// history filled up over them again — after `clear`, every line of
+    /// history the buffer had made.
+    @Test func testTrimmedLinesAreLetGo() {
+        let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 20, rows: 5, scrollback: 1000))
+        for i in 0 ..< 500 {
+            terminal.feed(text: "Line \(i)\r\n")
+        }
+        func allocated() -> Int {
+            var n = 0
+            terminal.buffer.lines.forEachAllocated { _ in n += 1 }
+            return n
+        }
+        #expect(allocated() >= 500)
+
+        terminal.feed(text: "\u{1b}[3J")
+
+        #expect(allocated() == terminal.rows, "\(allocated()) lines are held for a buffer of \(terminal.buffer.lines.count)")
+    }
+
     /// Test that pushing a line with images (via BufferLine copy) increments count
     @Test func testPushLineWithImagesIncrementsCount() {
         let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 80, rows: 25))
