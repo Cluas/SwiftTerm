@@ -2538,7 +2538,11 @@ open class Terminal {
             let scrollBackSize = buffer.lines.count - rows
             if scrollBackSize > 0 {
                 buffer.lines.trimStart (count: scrollBackSize)
-                buffer.linesTop = 0
+                // The lines left keep their scroll-invariant numbers, as
+                // when a full history or a shorter one drops its oldest:
+                // reset to 0, every number went back to one the dropped
+                // lines had, and a host keyed on them read other lines.
+                buffer.linesTop += scrollBackSize
                 buffer.yBase = max (buffer.yBase - scrollBackSize, 0)
                 buffer.yDisp = max (buffer.yDisp - scrollBackSize, 0)
                 // Every row the viewport shows now sits at another index, and

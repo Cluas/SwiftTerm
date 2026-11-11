@@ -168,6 +168,32 @@ final class HistoryTests {
         #expect(terminal.getScrollInvariantLine(row: 25) == nil, "line 25 went")
     }
 
+    /// Erasing the saved lines (ED 3, what `clear` sends) drops the history
+    /// the same way: the lines left keep their numbers and the erased ones
+    /// have none. The numbers went back to 0, so a line's number was one an
+    /// erased line had had, and a number read before `clear` found another
+    /// line after it. With a full history too, where numbers no longer start
+    /// at 0.
+    @Test func testErasingTheSavedLinesKeepsTheScrollInvariantNumbers() throws {
+        for fed in [40, 120] {
+            let terminal = Terminal(delegate: DropDelegate(), options: TerminalOptions(cols: 10, rows: 5, scrollback: 50))
+            for i in 0 ..< fed {
+                terminal.feed(text: "line \(i)\r\n")
+            }
+            let first = terminal.buffer.linesTop
+            let top = first + terminal.buffer.yBase
+            let line = try #require(terminal.getScrollInvariantLine(row: top + 1))
+            #expect(line.translateToString(trimRight: true) == "line \(fed - 3)")
+
+            terminal.feed(text: "\u{1b}[3J")
+
+            let after = try #require(terminal.getScrollInvariantLine(row: top + 1), "fed \(fed): line \(fed - 3) has no number any more")
+            #expect(after.translateToString(trimRight: true) == "line \(fed - 3)", "fed \(fed)")
+            #expect(terminal.getScrollInvariantLine(row: top - 1) == nil, "fed \(fed): an erased line still has a number")
+            #expect(terminal.getScrollInvariantLine(row: first) == nil, "fed \(fed): an erased line still has a number")
+        }
+    }
+
     /// With nothing dropped nothing is said: a longer history, or a shorter
     /// one that still holds every line.
     @Test func testAHistoryThatDropsNothingSaysNothing() {
