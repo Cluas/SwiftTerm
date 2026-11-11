@@ -125,4 +125,31 @@ final class SynchronizedOutputTests {
         terminal.feed(text: "\u{1b}[?2026l")
         #expect(text(terminal.displayBuffer, row: terminal.buffer.yBase) == "NEW TOP")
     }
+
+    /// The history made shorter while an update is held back: every line
+    /// of the buffer left moved up by as many rows as went, and the rows the
+    /// snapshot reads from it were read where they had been, other text or
+    /// none. They read as they were now, and a row that went reads blank
+    /// until the update ends.
+    @Test func testTheHistoryReadsTheSameWhenItGetsShorterWhileAnUpdateIsHeldBack() {
+        let terminal = Terminal(
+            delegate: TestDelegate(),
+            options: TerminalOptions(cols: 20, rows: 5, scrollback: 50)
+        )
+        for i in 0 ..< 40 {
+            terminal.feed(text: "line \(i)\r\n")
+        }
+        let before = (0 ..< terminal.buffer.lines.count).map { text(terminal.buffer, row: $0) }
+
+        terminal.feed(text: "\u{1b}[?2026h")
+        terminal.changeScrollback(10)
+
+        let snapshot = terminal.displayBuffer
+        #expect(snapshot !== terminal.buffer)
+        for row in [26, 30, 35] {
+            #expect(text(snapshot, row: row) == before[row], "history row \(row)")
+        }
+        #expect(text(snapshot, row: 5) == "", "a row that went reads \(text(snapshot, row: 5).debugDescription)")
+        terminal.feed(text: "\u{1b}[?2026l")
+    }
 }

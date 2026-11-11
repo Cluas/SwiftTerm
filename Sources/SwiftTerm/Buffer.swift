@@ -559,13 +559,22 @@ public final class Buffer {
         cols = newCols
     }
     
-    public func changeHistorySize (_ newScrollback: Int?)
+    /// Keeps `newScrollback` lines of history (none for nil). With fewer
+    /// than it holds the oldest lines go, and every line left sits that
+    /// many rows earlier; returns how many went, for whatever keeps rows of
+    /// the buffer to follow. Only history goes: the screen, and the saved
+    /// cursor on it, stay where they are (the saved cursor moved up by as
+    /// many rows as went), and a line keeps its scroll-invariant number
+    /// (`linesTop`), as when a full history pushes one out.
+    @discardableResult
+    public func changeHistorySize (_ newScrollback: Int?) -> Int
     {
         self.scrollback = newScrollback
         self.hasScrollback = newScrollback != nil
         
         let newMaxLength = getCorrectBufferLength(rows)
         let oldMaxLength = lines.maxLength
+        var dropped = 0
         
         if newMaxLength != oldMaxLength {
             if newMaxLength > oldMaxLength {
@@ -578,11 +587,13 @@ public final class Buffer {
                     lines.trimStart(count: amountToTrim)
                     yBase = max(yBase - amountToTrim, 0)
                     yDisp = max(yDisp - amountToTrim, 0)
-                    savedY = max(savedY - amountToTrim, 0)
+                    linesTop += amountToTrim
+                    dropped = amountToTrim
                 }
                 lines.maxLength = newMaxLength
             }
         }
+        return dropped
     }
     
     func translateBufferLineToString (lineIndex: Int, trimRight: Bool, startCol: Int = 0, endCol: Int = -1, skipNullCellsFollowingWide: Bool = false, characterProvider: ((CharData) -> Character)? = nil) -> String

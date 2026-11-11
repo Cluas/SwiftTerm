@@ -5565,16 +5565,20 @@ open class Terminal {
         tdel?.linefeed(source: self)
     }
 
-    /// The first `count` lines of the active buffer are gone and every line
-    /// left sits `count` rows earlier: the delegate hears it (a selection
-    /// moves with its text), and so does the snapshot synchronized output
-    /// reads rows from.
-    private func linesWereDropped (_ count: Int)
+    /// The first `count` lines of `dropped` (the active buffer if nil) are
+    /// gone and every line left sits `count` rows earlier: the snapshot
+    /// synchronized output reads rows from hears it if it reads them from
+    /// that buffer, and the delegate if it is the buffer on the screen (a
+    /// selection moves with its text).
+    private func linesWereDropped (_ count: Int, from dropped: Buffer? = nil)
     {
-        if let source = synchronizedOutputSource, source.buffer === buffer {
+        let dropped = dropped ?? buffer
+        if let source = synchronizedOutputSource, source.buffer === dropped {
             source.linesDropped += count
         }
-        tdel?.linesDropped (source: self, count: count)
+        if dropped === buffer {
+            tdel?.linesDropped (source: self, count: count)
+        }
     }
     
     //
@@ -5688,10 +5692,22 @@ open class Terminal {
     public func changeScrollback (_ newScrollback: Int?)
     {
         // Only the normal buffer has scrollback, the alt buffer should never have scrollback.
-        normalBuffer.changeHistorySize(newScrollback)
+        let dropped = normalBuffer.changeHistorySize(newScrollback)
 
         // Update the options to reflect the new scrollback size.
         options.scrollback = newScrollback ?? 0
+
+        if dropped > 0 {
+            // A shorter history drops its oldest lines and moves every line
+            // left up, as ED 3 does: a selection moves with its text, the
+            // snapshot synchronized output holds reads its rows where they
+            // went, and a view showing this buffer learns where the viewport
+            // is. None of them heard, and a selection covered other text.
+            linesWereDropped (dropped, from: normalBuffer)
+            if buffer === normalBuffer {
+                tdel?.scrolled (source: self, yDisp: buffer.yDisp)
+            }
+        }
 
         // Refresh the display to ensure proper rendering after scrollback size change.
         refresh (startRow: 0, endRow: self.rows - 1)
