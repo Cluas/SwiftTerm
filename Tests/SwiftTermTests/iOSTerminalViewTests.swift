@@ -13,6 +13,9 @@
 import Foundation
 import Testing
 import UIKit
+#if targetEnvironment(macCatalyst)
+import UIKit.UIGestureRecognizerSubclass
+#endif
 
 @testable import SwiftTerm
 
@@ -90,6 +93,58 @@ struct iOSTerminalViewTests {
         let style = try #require(view.pointerInteraction(interaction, styleFor: whole))
         #expect(String(describing: style).contains("type = shape"), "\(style)")
     }
+
+    #if targetEnvironment(macCatalyst)
+    // MARK: - The pointer selects (Mac Catalyst)
+
+    /// A drag a test can steer: where the pointer is, and how far the drag
+    /// has got.
+    final class SteeredPan: UIPanGestureRecognizer {
+        var point = CGPoint.zero
+        var steeredState: UIGestureRecognizer.State = .possible
+        override var state: UIGestureRecognizer.State {
+            get { steeredState }
+            set { steeredState = newValue }
+        }
+        override func location(in view: UIView?) -> CGPoint { point }
+    }
+
+    /// The middle of the cell at `col`, `row` (screen rows).
+    private func point(_ view: TerminalView, col: Int, row: Int) -> CGPoint {
+        CGPoint(x: (CGFloat(col) + 0.5) * view.cellDimension.width,
+                y: (CGFloat(row) + 0.5) * view.cellDimension.height + view.contentOffset.y)
+    }
+
+    /// On a Mac a click-drag selects, from where the button went down; it
+    /// selected nothing (the scroll view's pan took the drag and dragged the
+    /// history), and selection handles meant for a finger were offered.
+    @Test func thePointersDragSelects() throws {
+        let view = makeView()
+        view.feed(text: "first line\r\nhello world")
+        let drag = try #require(view.gestureRecognizers?.first { $0 is TerminalView.PointerDragRecognizer },
+                                "nothing turns the pointer's drag into a selection")
+        #expect(view.panGestureRecognizer.allowedTouchTypes.isEmpty,
+                "the scroll view's pan still takes the pointer's drag")
+        _ = drag
+
+        let steer = SteeredPan(target: nil, action: nil)
+        steer.point = point(view, col: 0, row: 1)
+        steer.state = .began
+        view.pointerSelectionDrag(steer)
+        steer.point = point(view, col: 5, row: 1)
+        steer.state = .changed
+        view.pointerSelectionDrag(steer)
+
+        #expect(view.getSelection() == "hello")
+    }
+
+    /// No handles: the pointer drags the selection.
+    @Test func aSelectionOnAMacHasNoHandlesToDrag() {
+        let view = makeView()
+        view.enableSelectionPanGesture()
+        #expect(view.panSelectionGesture == nil)
+    }
+    #endif
 
     // MARK: - Text input traits
 

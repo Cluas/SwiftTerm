@@ -1540,7 +1540,8 @@ extension TerminalView {
         }
 #endif
         
-#if os(iOS) || os(visionOS)
+// A Mac (Catalyst) shows a selection without handles: the pointer drags it.
+#if (os(iOS) || os(visionOS)) && !targetEnvironment(macCatalyst)
         if selection.active {
             let start, end: Position
 

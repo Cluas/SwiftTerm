@@ -14,6 +14,9 @@
 #if os(iOS) || os(visionOS)
 import Foundation
 import UIKit
+#if targetEnvironment(macCatalyst)
+import UIKit.UIGestureRecognizerSubclass
+#endif
 import CoreText
 import CoreGraphics
 import os
@@ -1175,6 +1178,11 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     
     var panSelectionGesture: UIPanGestureRecognizer?
     func enableSelectionPanGesture () {
+        #if targetEnvironment(macCatalyst)
+        // On a Mac the pointer's drag selects (pointerSelectionDrag): there
+        // are no handles to drag.
+        return
+        #endif
         guard panSelectionGesture == nil else {
             return
         }
@@ -1210,7 +1218,67 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
 
         singleTap.require(toFail: doubleTap)
         doubleTap.require(toFail: tripleTap)
+        #if targetEnvironment(macCatalyst)
+        setupPointerSelection()
+        #endif
     }
+
+    #if targetEnvironment(macCatalyst)
+    /// Mac Catalyst: the pointer selects, as in every Mac terminal. A
+    /// click-drag selected nothing: UIKit handed the drag to the scroll
+    /// view's pan, which dragged the history like a finger (spike G4). The
+    /// drag now selects from where the button went down; the scroll wheel
+    /// and the trackpad still scroll, through the pan's scroll types. A
+    /// program that reports the mouse gets the drag instead.
+    func setupPointerSelection ()
+    {
+        panGestureRecognizer.allowedTouchTypes = []
+        let drag = PointerDragRecognizer (target: self, action: #selector(pointerSelectionDrag(_:)))
+        drag.maximumNumberOfTouches = 1
+        addGestureRecognizer(drag)
+    }
+
+    /// A pan that remembers where the button went down: it begins only
+    /// after some travel, by when the pointer is cells away (G4 measured a
+    /// drag that started two cells right of the press).
+    final class PointerDragRecognizer: UIPanGestureRecognizer {
+        private(set) var downLocation: CGPoint?
+
+        override func touchesBegan (_ touches: Set<UITouch>, with event: UIEvent) {
+            if let touch = touches.first, let view {
+                downLocation = touch.location (in: view)
+            }
+            super.touchesBegan (touches, with: event)
+        }
+
+        override func reset () {
+            super.reset ()
+            downLocation = nil
+        }
+    }
+
+    @objc func pointerSelectionDrag (_ gestureRecognizer: UIPanGestureRecognizer)
+    {
+        if allowMouseReporting && terminal.mouseMode != .off {
+            panMouseHandler (gestureRecognizer)
+            return
+        }
+        let hit = calculateTapHit (gesture: gestureRecognizer).grid
+        switch gestureRecognizer.state {
+        case .began:
+            let down = (gestureRecognizer as? PointerDragRecognizer)?.downLocation ?? gestureRecognizer.location (in: self)
+            hideContextMenu ()
+            selection.setSoftStart (bufferPosition: calculateTapHit (point: down).grid)
+            selection.startSelection ()
+            selection.dragExtend (bufferPosition: hit)
+        case .changed:
+            selection.dragExtend (bufferPosition: hit)
+        default:
+            break
+        }
+        queuePendingDisplay ()
+    }
+    #endif
 
     func setupLinkReportingInteractions ()
     {
