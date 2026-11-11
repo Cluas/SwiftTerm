@@ -68,5 +68,25 @@ struct iOSTerminalViewTests {
 
         #expect(view == nil, "the view outlived its last reference")
     }
+
+    // MARK: - Text input traits
+
+    /// The terminal's text input said nothing of what it is (a nil content
+    /// type, "unknown"), and AutoFill guessed: on a Mac it tried to show a
+    /// list of one-time codes at the terminal's caret. It names a type of
+    /// its own now, none of the ones AutoFill fills.
+    @Test func theTextInputIsNothingAutoFillFills() throws {
+        let view = makeView()
+        let type = try #require(view.textContentType, "no content type: AutoFill guesses")
+        var filled: [UITextContentType] = [
+            .username, .password, .newPassword, .oneTimeCode, .emailAddress, .telephoneNumber,
+            .name, .givenName, .familyName, .fullStreetAddress, .postalCode, .URL, .creditCardNumber,
+        ]
+        if #available(iOS 17.0, *) {
+            filled += [.creditCardSecurityCode, .birthdate]
+        }
+        #expect(!filled.contains(type), "\(type.rawValue)")
+        #expect(!type.rawValue.isEmpty)
+    }
 }
 #endif

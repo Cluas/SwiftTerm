@@ -1987,8 +1987,17 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     public var keyboardAppearance: UIKeyboardAppearance = .`default`
     public var returnKeyType: UIReturnKeyType = .`default`
     
-    // This is wrong, but I can not find another good one
-    public var textContentType: UITextContentType! = .none
+    /// What the system is told the text typed here is: not a credential,
+    /// a code, a contact field or anything else AutoFill fills, so it never
+    /// offers passwords or one-time codes on the terminal. With no type
+    /// (nil, which UIKit reads as "unknown") AutoFill guessed: on a Mac it
+    /// tried to show a list of verification codes at the terminal's caret.
+    /// UIKit has no "none"; the view names a type of its own, which no
+    /// AutoFill source fills. A host may set another.
+    public var textContentType: UITextContentType! = TerminalView.terminalContentType
+
+    /// The `textContentType` a terminal has by default.
+    public static let terminalContentType = UITextContentType (rawValue: "terminal")
     
     public var isSecureTextEntry: Bool = false
     public var enablesReturnKeyAutomatically: Bool = false
