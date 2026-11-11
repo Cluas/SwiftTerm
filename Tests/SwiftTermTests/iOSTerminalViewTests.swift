@@ -69,6 +69,28 @@ struct iOSTerminalViewTests {
         #expect(view == nil, "the view outlived its last reference")
     }
 
+    // MARK: - The pointer
+
+    /// Over the terminal the pointer is over text, and becomes the I-beam:
+    /// the view's pointer interaction answers with a region, the whole view,
+    /// and a style for it. It answered with no region, so the pointer stayed
+    /// the system's default on an iPad's trackpad and on a Mac, and no
+    /// interaction a host added further up was asked. (UIKit makes no region
+    /// request a test can make: this asks the method the delegate's answer
+    /// comes from. A Mac showing the I-beam cursor is checked by hand.)
+    @available(iOS 13.4, *)
+    @Test func thePointerOverTheTextHasARegionAndABeam() throws {
+        let view = makeView()
+        let interaction = try #require(view.interactions.compactMap { $0 as? UIPointerInteraction }.first)
+        let whole = UIPointerRegion(rect: view.bounds)
+
+        let region = view.pointerRegion(at: CGPoint(x: 20, y: 20), modifiers: [], defaultRegion: whole)
+
+        #expect(region === whole, "no region: the system's default pointer over the text")
+        let style = try #require(view.pointerInteraction(interaction, styleFor: whole))
+        #expect(String(describing: style).contains("type = shape"), "\(style)")
+    }
+
     // MARK: - Text input traits
 
     /// The terminal's text input said nothing of what it is (a nil content

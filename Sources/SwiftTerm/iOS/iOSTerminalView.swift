@@ -1226,13 +1226,35 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         }
     }
 
+    /// The pointer (a trackpad or mouse on an iPad, the Mac's under Mac
+    /// Catalyst) over the terminal is over text: the view is one region,
+    /// which `pointerInteraction(_:styleFor:)` makes an I-beam. It returned
+    /// no region, so the pointer stayed the system's default over the text,
+    /// and an interaction a host added further up was never asked either.
+    /// Open, so a host that wants another pointer can say so.
     @available(iOS 13.4, visionOS 1.0, *)
-    public func pointerInteraction(_ interaction: UIPointerInteraction, regionFor request: UIPointerRegionRequest, defaultRegion: UIPointerRegion) -> UIPointerRegion?
+    open func pointerInteraction(_ interaction: UIPointerInteraction, regionFor request: UIPointerRegionRequest, defaultRegion: UIPointerRegion) -> UIPointerRegion?
     {
-        lastPointerLocation = request.location
-        reportLinkIfNeeded(at: request.location, modifiers: request.modifiers, force: false)
-        updateLinkHighlightIfNeeded(at: request.location, modifiers: request.modifiers, force: false)
-        return nil
+        pointerRegion(at: request.location, modifiers: request.modifiers, defaultRegion: defaultRegion)
+    }
+
+    /// The region `pointerInteraction(_:regionFor:defaultRegion:)` answers
+    /// with, the pointer at `location`: the default one, the whole view.
+    @available(iOS 13.4, visionOS 1.0, *)
+    func pointerRegion(at location: CGPoint, modifiers: UIKeyModifierFlags, defaultRegion: UIPointerRegion) -> UIPointerRegion?
+    {
+        lastPointerLocation = location
+        reportLinkIfNeeded(at: location, modifiers: modifiers, force: false)
+        updateLinkHighlightIfNeeded(at: location, modifiers: modifiers, force: false)
+        return defaultRegion
+    }
+
+    /// A vertical beam a line of the terminal tall, as over any text (a Mac
+    /// shows it as its I-beam cursor).
+    @available(iOS 13.4, visionOS 1.0, *)
+    open func pointerInteraction(_ interaction: UIPointerInteraction, styleFor region: UIPointerRegion) -> UIPointerStyle?
+    {
+        UIPointerStyle(shape: .verticalBeam(length: cellDimension.height), constrainedAxes: [])
     }
 
     @objc func handleHover (_ gestureRecognizer: UIHoverGestureRecognizer)
