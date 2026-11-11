@@ -11,6 +11,7 @@
 
 #if os(iOS)
 import Foundation
+import ObjectiveC
 import Testing
 import UIKit
 #if targetEnvironment(macCatalyst)
@@ -229,6 +230,59 @@ struct iOSTerminalViewTests {
         view.insertBacktab(nil)
 
         #expect(host.sent == [Array("\u{1b}[9;2u".utf8)])
+    }
+    #endif
+
+    // MARK: - Key repeat
+
+    /// A held key the view repeats itself repeats at the platform's timing:
+    /// on a Mac its keyboard settings (NSEvent's keyRepeatDelay and
+    /// keyRepeatInterval), elsewhere 0.4 s and 0.1 s. It was 0.4 s and 0.1 s
+    /// on a Mac too, whatever it was set to.
+    @Test func aHeldKeyRepeatsAtThePlatformsTiming() throws {
+        let view = makeView()
+        let timing = TerminalView.keyRepeatTiming()
+        #if targetEnvironment(macCatalyst)
+        func appKit(_ name: String) -> Double? {
+            let selector = NSSelectorFromString(name)
+            guard let event = NSClassFromString("NSEvent"), let method = class_getClassMethod(event, selector) else { return nil }
+            typealias Getter = @convention(c) (AnyClass, Selector) -> Double
+            return unsafeBitCast(method_getImplementation(method), to: Getter.self)(event, selector)
+        }
+        let delay = try #require(appKit("keyRepeatDelay"))
+        let interval = try #require(appKit("keyRepeatInterval"))
+        #expect(timing.delay == delay && timing.interval == interval, "\(timing), the Mac says \(delay), \(interval)")
+        #else
+        #expect(timing.delay == 0.4 && timing.interval == 0.1)
+        #endif
+
+        let started = Date()
+        view.startKeyRepeat {}
+        let timer = try #require(view.keyRepeat)
+        #expect(abs(timer.timeInterval - timing.interval) < 0.0001)
+        #expect(abs(timer.fireDate.timeIntervalSince(started) - timing.delay) < 0.05)
+        view.keyRepeat?.invalidate()
+    }
+
+    /// A press UIKit takes back never ends; the repeat it started went on
+    /// until the view lost the keyboard.
+    @Test func aCancelledPressStopsItsRepeat() {
+        let view = makeView()
+        view.startKeyRepeat {}
+        #expect(view.keyRepeat != nil)
+
+        view.pressesCancelled([], with: nil)
+
+        #expect(view.keyRepeat == nil, "the key goes on repeating")
+    }
+
+    #if targetEnvironment(macCatalyst)
+    /// A held letter repeats in a terminal; the Mac's press-and-hold accent
+    /// picker would take it: a view turns it off for its app (registration
+    /// domain).
+    @Test func theAccentPickerDoesNotTakeAHeldLetter() {
+        _ = makeView()
+        #expect(UserDefaults.standard.object(forKey: "ApplePressAndHoldEnabled") as? Bool == false)
     }
     #endif
 

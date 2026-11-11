@@ -345,6 +345,9 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
           
     func setup()
     {
+        #if targetEnvironment(macCatalyst)
+        _ = TerminalView.pressAndHoldOff
+        #endif
         showsHorizontalScrollIndicator = true
         indicatorStyle = .white
         
@@ -2967,6 +2970,100 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     }
     var keyRepeat: Timer?
 
+    /// How long a held key waits before it repeats, and then how often, for
+    /// the keys the view repeats itself (UIKit reports a held key's press
+    /// once): on a Mac (Catalyst) the Mac's own keyboard settings, NSEvent's
+    /// keyRepeatDelay and keyRepeatInterval, read at every press so a change
+    /// in System Settings applies at once (a Catalyst app reaches AppKit's
+    /// class through the runtime). iPadOS gives an app no access to its Key
+    /// Repeat settings: there it is 0.4 s and 0.1 s. They were 0.4 s and 0.1 s
+    /// everywhere: a Mac set to 0.25 s and 30 a second repeated a held arrow
+    /// at 10 a second.
+    static func keyRepeatTiming () -> (delay: TimeInterval, interval: TimeInterval)
+    {
+        #if targetEnvironment(macCatalyst)
+        func appKit (_ name: String) -> TimeInterval? {
+            let selector = NSSelectorFromString (name)
+            guard let event = NSClassFromString ("NSEvent"), let method = class_getClassMethod (event, selector) else {
+                return nil
+            }
+            typealias Getter = @convention(c) (AnyClass, Selector) -> Double
+            let value = unsafeBitCast (method_getImplementation (method), to: Getter.self) (event, selector)
+            return value > 0 && value < 5 ? value : nil
+        }
+        if let delay = appKit ("keyRepeatDelay"), let interval = appKit ("keyRepeatInterval") {
+            return (delay, interval)
+        }
+        #endif
+        return (0.4, 0.1)
+    }
+
+    /// Repeats `body` while the key that started it is held, at the
+    /// platform's timing (`keyRepeatTiming`), in place of any repeat already
+    /// running.
+    func startKeyRepeat (_ body: @escaping () -> Void)
+    {
+        keyRepeat?.invalidate()
+        let timing = Self.keyRepeatTiming ()
+        let timer = Timer (fire: Date (timeIntervalSinceNow: timing.delay), interval: timing.interval, repeats: true) { _ in
+            body ()
+        }
+        RunLoop.current.add (timer, forMode: .default)
+        keyRepeat = timer
+    }
+
+    #if targetEnvironment(macCatalyst)
+    /// A held letter repeats, as in every terminal: on a Mac (Catalyst) the
+    /// view saw it only once, the system repeating the text of a held key
+    /// only for its own text views (spike G4; measured with key events
+    /// posted to a test app, with and without the press-and-hold accent
+    /// picker). The text of a key the text system takes, with no Command,
+    /// Control or Option and no composition in progress, is inserted again
+    /// at the Mac's timing until the key goes up, another key goes down, or
+    /// a composition starts (an input method took the key). Backspace is not
+    /// among them: the system repeats deleteBackward itself (measured: a
+    /// repeat here doubled it).
+    func repeatHeldTextKey (_ key: UIKey)
+    {
+        let text = key.characters
+        // Printable text only: no control characters (Backspace, Return,
+        // Tab, Escape), and none of the private-use characters AppKit gives
+        // function keys.
+        guard _markedTextRange == nil, key.modifierFlags.isDisjoint (with: [.command, .control, .alternate]),
+              !text.isEmpty, text.unicodeScalars.allSatisfy ({
+                  $0.value >= 0x20 && $0.value != 0x7f && !(0xF700 ... 0xF8FF).contains ($0.value)
+              }) else {
+            return
+        }
+        startKeyRepeat { [weak self] in
+            guard let self else { return }
+            if self._markedTextRange != nil {
+                self.keyRepeat?.invalidate ()
+                self.keyRepeat = nil
+                return
+            }
+            self.insertText (text)
+        }
+    }
+
+    /// The accent picker a held letter brings up on a Mac (press and hold)
+    /// would take the repeats a terminal gives it; Mac terminals turn it
+    /// off for themselves, and so does the view, for its app, in the
+    /// registration domain (a value the user set for the app still wins).
+    static let pressAndHoldOff: Void = {
+        UserDefaults.standard.register (defaults: ["ApplePressAndHoldEnabled": false])
+    }()
+    #endif
+
+    public override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        // A press UIKit took back (the app lost the keyboard with the key
+        // down, the system claimed the key) never ends: without this, the key
+        // went on repeating until the view lost the keyboard.
+        keyRepeat?.invalidate()
+        keyRepeat = nil
+        super.pressesCancelled(presses, with: event)
+    }
+
     private struct PendingKittyKeyEvent {
         let key: UIKey
         let eventType: KittyKeyboardEventType
@@ -3036,9 +3133,7 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
                         didHandleEvent = true
                         keyRepeat?.invalidate()
                         if !isModifierKey {
-                            keyRepeat = Timer(fire: Date(timeInterval: 0.4, since: Date()),
-                                              interval: 0.1,
-                                              repeats: true) { _ in
+                            startKeyRepeat {
                                 let repeatEvent = KittyKeyEvent(key: .functional(functionKey),
                                                                 modifiers: modifiers,
                                                                 eventType: repeatEventType,
@@ -3048,7 +3143,6 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
                                                                 composing: self.kittyIsComposing)
                                 _ = self.sendKittyEvent(repeatEvent)
                             }
-                            RunLoop.current.add(keyRepeat!, forMode: .default)
                         }
                     }
                     continue
@@ -3058,10 +3152,7 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
                        sendKittyEvent(kittyEvent) {
                         didHandleEvent = true
                         let modifiers = kittyEvent.modifiers
-                        keyRepeat?.invalidate()
-                        keyRepeat = Timer(fire: Date(timeInterval: 0.4, since: Date()),
-                                          interval: 0.1,
-                                          repeats: true) { _ in
+                        startKeyRepeat {
                             let repeatEvent = KittyKeyEvent(key: kittyEvent.key,
                                                             modifiers: modifiers,
                                                             eventType: repeatEventType,
@@ -3071,7 +3162,6 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
                                                             composing: self.kittyIsComposing)
                             _ = self.sendKittyEvent(repeatEvent)
                         }
-                        RunLoop.current.add(keyRepeat!, forMode: .default)
                         continue
                     }
                 }
@@ -3209,15 +3299,16 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
             }
             if let sendableData = data {
                 didHandleEvent = true
-                keyRepeat?.invalidate()
-                keyRepeat = Timer (fire: Date(timeInterval: 0.4, since: Date()),
-                                   interval: 0.1,
-                                   repeats: true) { timer in
+                startKeyRepeat {
                     self.sendData(data: sendableData)
                 }
-                RunLoop.current.add(keyRepeat!, forMode: .default)
                 sendData (data: sendableData)
             }
+            #if targetEnvironment(macCatalyst)
+            if data == nil {
+                repeatHeldTextKey (key)
+            }
+            #endif
         }
         if commandActive != wasCommandActive {
             if let point = lastPointerLocation {
