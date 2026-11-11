@@ -105,10 +105,16 @@ public final class BufferLine: CustomDebugStringConvertible {
         return Int (data [index].width)
     }
 
-    func clear(with attribute: Attribute) {
+    /// Makes this line the blank line `Buffer.getBlankLine` makes: every cell
+    /// `attribute`'s blank, no images, single width, and continuing the line
+    /// before it only when `isWrapped` says so. A recycled line kept the
+    /// mark and the line size of the line it had been.
+    func clear(with attribute: Attribute, isWrapped: Bool = false) {
         let empty = CharData(attribute: attribute)
         data.update(repeating: empty)
         images = nil
+        self.isWrapped = isWrapped
+        renderMode = .single
     }
     /// Test whether contains any chars.
     public func hasContent (index: Int) -> Bool {

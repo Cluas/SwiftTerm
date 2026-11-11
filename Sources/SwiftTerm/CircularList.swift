@@ -331,7 +331,10 @@ internal class CircularBufferLineList {
         onLinePushed?(value.images != nil)
     }
 
-    func recycle (clearAttribute: Attribute)
+    /// Drops the oldest line and makes its storage the new last line: blank,
+    /// as `BufferLine.clear(with:isWrapped:)` makes it (xterm.js copies the
+    /// new line in, `recycle().copyFrom(newLine)`).
+    func recycle (clearAttribute: Attribute, isWrapped: Bool = false)
     {
         if count != maxLength {
             print ("can only recycle when the buffer is full")
@@ -341,7 +344,7 @@ internal class CircularBufferLineList {
         startIndex += 1
         startIndex = startIndex % maxLength
         let hadImages = array[index]?.images != nil
-        array[index]?.clear(with: clearAttribute)
+        array[index]?.clear(with: clearAttribute, isWrapped: isWrapped)
         onLineRecycled?(hadImages)
         //array [index] = makeEmpty! (-1)
     }

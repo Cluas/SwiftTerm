@@ -5477,7 +5477,10 @@ open class Terminal {
             // Insert the line using the fastest method
             if bottomRow == lines.count - 1 {
                 if willBufferBeTrimmed {
-                    lines.recycle (clearAttribute: eraseAttr())
+                    // The oldest line's storage, made the new line: blank,
+                    // single width, and marked as continuing the line above
+                    // only if it does. It kept the old line's mark and size.
+                    lines.recycle (clearAttribute: eraseAttr(), isWrapped: isWrapped)
                 } else {
                     lines.push (BufferLine (from: newLine))
                 }

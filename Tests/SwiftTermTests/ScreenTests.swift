@@ -309,6 +309,79 @@ final class ScreenTests {
         #expect(copiedText(terminal, lines: 0, 1) == "h0\nh1")
     }
 
+    /// Once the history is full, a line that scrolls in takes the oldest
+    /// line's storage (`recycle`). Its cells were cleared, but it kept that
+    /// line's wrap mark: after a run of wrapped output, every other ordinary
+    /// line came out marked as continuing the one before it, and copied run
+    /// together with it. xterm.js copies the new line's mark in
+    /// (`recycle().copyFrom(newLine)`). The alternate screen keeps no
+    /// history, so every line that scrolls onto it takes its top row's.
+    @Test(arguments: [false, true])
+    func testALineScrollingIntoAFullHistoryIsNotMarkedAsContinuingAnother(onTheAlternateScreen: Bool) {
+        let (terminal, _) = TerminalTestHarness.makeTerminal(cols: 10, rows: 4, scrollback: 6)
+        if onTheAlternateScreen {
+            terminal.feed(text: "\(esc)[?1049h")
+        }
+        let buffer = terminal.buffer
+        // Lines run over two rows each: every other row continues the one
+        // above it, and the buffer is full of them.
+        for _ in 0 ..< 6 {
+            terminal.feed(text: "AAAAAAAAAABBB\r\n")
+        }
+        #expect(buffer.lines.isFull)
+
+        for i in 0 ..< 10 {
+            terminal.feed(text: "line \(i)\r\n")
+        }
+
+        let marked = (0 ..< buffer.lines.count).filter { buffer.lines[$0].isWrapped }
+        #expect(marked == [], "ordinary lines marked as continuing the line above: \(marked)")
+        let shown = (10 - buffer.lines.count + 1 ..< 10).map { "line \($0)" }.joined(separator: "\n")
+        #expect(copiedText(terminal, lines: 0, buffer.lines.count - 1) == shown)
+    }
+
+    /// And the other way: text that runs past the last column of the bottom
+    /// row goes on in the line that scrolls in, which took the oldest line's
+    /// mark, not one of its own: after ordinary output the long line was not
+    /// marked as one, and copied as two.
+    @Test(arguments: [false, true])
+    func testALongLineRunningOnIntoAFullHistoryIsMarkedAsOne(onTheAlternateScreen: Bool) {
+        let (terminal, _) = TerminalTestHarness.makeTerminal(cols: 10, rows: 4, scrollback: 6)
+        if onTheAlternateScreen {
+            terminal.feed(text: "\(esc)[?1049h")
+        }
+        let buffer = terminal.buffer
+        for i in 0 ..< 12 {
+            terminal.feed(text: "line \(i)\r\n")
+        }
+        #expect(buffer.lines.isFull)
+
+        terminal.feed(text: "CCCCCCCCCCDDD")
+
+        let last = buffer.lines.count - 1
+        #expect(buffer.lines[last].isWrapped, "the row the text runs on to is not marked as continuing it")
+        #expect(copiedText(terminal, lines: last - 1, last) == "CCCCCCCCCCDDD")
+    }
+
+    /// The line size (DECDWL, DECDHL) went with the storage too: the line
+    /// that took a double-width line's storage was drawn double width, half
+    /// of it off the screen. xterm clears it on a line it scrolls in.
+    @Test func testALineScrollingIntoAFullHistoryIsSingleWidth() {
+        let (terminal, _) = TerminalTestHarness.makeTerminal(cols: 10, rows: 2, scrollback: 2)
+        let buffer = terminal.buffer
+        terminal.feed(text: "\(esc)#6wide\r\n\(esc)#3tall\r\n\(esc)#4tall\r\n")
+        #expect(buffer.lines.isFull)
+
+        for i in 0 ..< 4 {
+            terminal.feed(text: "x\(i)\r\n")
+        }
+
+        for row in 0 ..< buffer.lines.count {
+            #expect(buffer.lines[row].renderMode == .single,
+                    "line \(row), \(bufferLineText(buffer, lineIndex: row).debugDescription), is \(buffer.lines[row].renderMode)")
+        }
+    }
+
     /// Test ED 2 - Erase entire screen
     /// From Ghostty: Screen clearRows active multi line
     @Test func testEraseDisplayAll() {
