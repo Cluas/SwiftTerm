@@ -67,5 +67,77 @@ struct ClearScrollbackViewTests {
         #expect(view.terminal.getTopVisibleRow() == 0)
         #expect(host.positions == [0], "the viewport moved to the top without a word: \(host.positions)")
     }
+
+    // MARK: - A selection over an erased history
+
+    /// A view with two hundred lines of output, of which the screen shows
+    /// the last few, keeping its selection while output arrives (a host that
+    /// lets the user select while a program writes turns mouse reporting off
+    /// for that, as Moshpit does).
+    @MainActor
+    private func viewWithHistory() -> TerminalView {
+        let view = TerminalView(frame: CGRect(x: 0, y: 0, width: 400, height: 200))
+        view.allowMouseReporting = false
+        for i in 0 ..< 200 {
+            view.feed(text: "line \(i)\r\n")
+        }
+        #expect(view.terminal.buffer.yBase > 100, "history above the screen")
+        return view
+    }
+
+    /// Buffer row `row`'s first `length` cells as the selection.
+    @MainActor
+    private func select(_ view: TerminalView, row: Int, through lastRow: Int? = nil, length: Int = 8) {
+        view.selection.setSelection(start: Position(col: 0, row: row),
+                                    end: Position(col: length, row: lastRow ?? row))
+    }
+
+    /// A selection is kept as buffer rows, and erasing the saved lines moves
+    /// every row that is left up by as many as were erased. A selection on
+    /// the screen stayed on its old row numbers: the highlight and the copy
+    /// landed on whatever came to sit there — here, rows that are not there.
+    @MainActor
+    @Test func clearingTheHistoryKeepsASelectionOnTheScreenOnItsText() throws {
+        let view = viewWithHistory()
+        let erased = view.terminal.buffer.yBase
+        select(view, row: erased + 2)
+        let selected = try #require(view.getSelection())
+        #expect(selected.hasPrefix("line 1"), "\(selected)")
+
+        view.feed(text: "\u{1b}[3J")
+
+        #expect(view.selectionActive, "the text it selected is still on the screen")
+        #expect(view.getSelection() == selected, "the selection no longer covers its text")
+        #expect(view.selection.start.row == 2)
+        #expect(view.selection.end.row == 2)
+    }
+
+    /// A selection in the history the sequence erased has no text left: it
+    /// goes. It stayed, and copied the screen rows that now have its numbers.
+    @MainActor
+    @Test func clearingTheHistoryDropsASelectionInIt() {
+        let view = viewWithHistory()
+        select(view, row: 3)
+        #expect(view.getSelection() == "line 3")
+
+        view.feed(text: "\u{1b}[3J")
+
+        #expect(!view.selectionActive, "a selection of erased text survived")
+        #expect(view.getSelection() == nil)
+    }
+
+    /// Part of the text is gone and the rest moved: a selection reaching from
+    /// the erased history into the screen goes too.
+    @MainActor
+    @Test func clearingTheHistoryDropsASelectionReachingIntoIt() {
+        let view = viewWithHistory()
+        let screenTop = view.terminal.buffer.yBase
+        select(view, row: screenTop - 2, through: screenTop + 1)
+
+        view.feed(text: "\u{1b}[3J")
+
+        #expect(!view.selectionActive, "a selection of partly erased text survived")
+        #expect(view.getSelection() == nil)
+    }
 }
 #endif

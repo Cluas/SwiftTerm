@@ -404,4 +404,69 @@ final class SelectionTests: TerminalDelegate {
         #expect(selection.start.col == 3)
         #expect(selection.end.col == 3)
     }
+
+    // MARK: - Lines dropped from the top of the buffer (ESC [ 3 J)
+
+    /// What the terminal last told its delegate it dropped. Each test gets its
+    /// own instance.
+    private var droppedLines: [Int] = []
+    func linesDropped(source: Terminal, count: Int) { droppedLines.append(count) }
+
+    /// Erasing the saved lines tells the delegate how many lines went: the
+    /// rows above the screen. With none saved, and on the alternate screen
+    /// (which saves none), nothing moved and nothing is said.
+    @Test func testErasingSavedLinesReportsTheLinesDropped() {
+        let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 10, rows: 5, scrollback: 100))
+        terminal.feed(text: "\u{1b}[3J")
+        #expect(droppedLines == [])
+
+        for i in 0 ..< 20 {
+            terminal.feed(text: "line \(i)\r\n")
+        }
+        let saved = terminal.buffer.yBase
+        terminal.feed(text: "\u{1b}[?1049h\u{1b}[3J\u{1b}[?1049l")
+        #expect(droppedLines == [], "the alternate screen has no saved lines")
+
+        terminal.feed(text: "\u{1b}[3J")
+        #expect(droppedLines == [saved])
+    }
+
+    /// A selection on the lines that are left moves up with its text, and so
+    /// does the pivot a handle drag extends from.
+    @Test func testLinesDroppedMovesTheSelectionWithItsText() throws {
+        let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 10, rows: 5, scrollback: 100))
+        let selection = SelectionService(terminal: terminal)
+        for i in 0 ..< 20 {
+            terminal.feed(text: "line \(i)\r\n")
+        }
+        selection.setSelection(start: Position(col: 2, row: 17), end: Position(col: 4, row: 18))
+        selection.pivot = Position(col: 2, row: 17)
+        let text = selection.getSelectedText()
+
+        terminal.feed(text: "\u{1b}[3J")
+        let dropped = try #require(droppedLines.first)
+        selection.linesDropped(count: dropped)
+
+        #expect(selection.active)
+        #expect(selection.start == Position(col: 2, row: 17 - dropped))
+        #expect(selection.end == Position(col: 4, row: 18 - dropped))
+        #expect(selection.pivot == Position(col: 2, row: 17 - dropped))
+        #expect(selection.getSelectedText() == text)
+    }
+
+    /// A selection with any of its rows among the dropped lines goes, as a
+    /// whole: its text is not all there any more.
+    @Test(arguments: [(start: 3, end: 4), (start: 14, end: 16), (start: 15, end: 15)])
+    func testLinesDroppedDropsASelectionThatReachedIntoThem(rows: (start: Int, end: Int)) {
+        let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 10, rows: 5, scrollback: 100))
+        let selection = SelectionService(terminal: terminal)
+        for i in 0 ..< 20 {
+            terminal.feed(text: "line \(i)\r\n")
+        }
+        selection.setSelection(start: Position(col: 0, row: rows.start), end: Position(col: 4, row: rows.end))
+
+        selection.linesDropped(count: 16)
+
+        #expect(!selection.active, "rows \(rows.start)...\(rows.end) reached into the 16 lines dropped")
+    }
 }

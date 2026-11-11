@@ -88,6 +88,13 @@ public protocol TerminalDelegate: AnyObject {
     /// The default implementation does nothing.
     func bufferActivated (source: Terminal)
 
+    /// Invoked after the terminal dropped the first `count` lines of the active buffer
+    /// without scrolling them through the screen, so that every line left now sits
+    /// `count` rows earlier: erasing the saved lines (`CSI 3 J`) does this. A front end
+    /// that keeps positions into the buffer, such as a selection, moves them by as much.
+    /// The default implementation does nothing.
+    func linesDropped (source: Terminal, count: Int)
+
     /// Invoked when synchronized output mode is toggled on or off.
     /// The default implementation does nothing.
     func synchronizedOutputChanged (source: Terminal, active: Bool)
@@ -2510,8 +2517,10 @@ open class Terminal {
                 // A view that places itself from `yDisp` (iOS: the scroll
                 // offset, and the content size from the line count) otherwise
                 // keeps drawing rows that no longer exist — a blank screen
-                // after `clear`, until something scrolls.
+                // after `clear`, until something scrolls. A selection, kept
+                // in buffer rows, has to move with its text too.
                 updateFullScreen ()
+                tdel?.linesDropped (source: self, count: scrollBackSize)
                 tdel?.scrolled (source: self, yDisp: buffer.yDisp)
             }
             break;
@@ -6904,6 +6913,10 @@ public extension TerminalDelegate {
     }
     
     func bufferActivated(source: Terminal) {
+        // nothing
+    }
+
+    func linesDropped(source: Terminal, count: Int) {
         // nothing
     }
 

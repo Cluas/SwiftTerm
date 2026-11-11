@@ -590,6 +590,12 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
         terminalDelegate?.scrolled(source: self, position: scrollPosition)
     }
     
+    open func linesDropped(source: Terminal, count: Int) {
+        // The selection is kept in buffer rows; erasing the saved lines moved
+        // every row that is left.
+        selection?.linesDropped(count: count)
+    }
+
     open func linefeed(source: Terminal) {
         // Preserve manual selection while output is streaming when mouse reporting is disabled.
         if allowMouseReporting {

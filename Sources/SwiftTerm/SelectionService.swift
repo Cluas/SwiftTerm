@@ -533,6 +533,29 @@ class SelectionService: CustomDebugStringConvertible {
     }
     
     /**
+     * The first `count` lines of the buffer were dropped and every line after
+     * them now sits `count` rows earlier (erasing the saved lines, ED 3). A
+     * selection on lines that are left moves with its text. One that reached
+     * into the dropped lines goes with them: part of its text is gone, and
+     * its rows now hold other text.
+     */
+    func linesDropped (count: Int)
+    {
+        guard count > 0 else {
+            return
+        }
+        if active && min (start.row, end.row) < count {
+            selectNone ()
+            return
+        }
+        start = Position (col: start.col, row: max (start.row - count, 0))
+        end = Position (col: end.col, row: max (end.row - count, 0))
+        if let pivot {
+            self.pivot = Position (col: pivot.col, row: max (pivot.row - count, 0))
+        }
+    }
+
+    /**
      * Clears the selection
      */
     public func selectNone ()
