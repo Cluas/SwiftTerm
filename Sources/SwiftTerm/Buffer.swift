@@ -226,6 +226,35 @@ public final class Buffer {
         }
     }
 
+    /// For synchronized output (`Terminal.displayBuffer`): numbers this
+    /// buffer's lines as `source` numbers its own and holds copies of the
+    /// rows of `source`'s screen and of its viewport only — what the program
+    /// can change before the update ends, and what the view draws. Any other
+    /// row is made by `lineAt` the first time something reads it, or blank
+    /// if it makes none.
+    func adoptSnapshotLines (of source: Buffer, lineAt: @escaping (_ row: Int) -> BufferLine?)
+    {
+        if _lines.maxLength < source._lines.maxLength {
+            _lines.maxLength = source._lines.maxLength
+        }
+        let count = source._lines.count
+        _lines.count = count
+        let lines = 0 ..< count
+        let viewport = (source.yDisp ..< source.yDisp + source.rows).clamped (to: lines)
+        let screen = (source.yBase ..< source.yBase + source.rows).clamped (to: lines)
+        for row in viewport {
+            _lines [row] = BufferLine (from: source._lines [row])
+        }
+        for row in screen where !viewport.contains (row) {
+            _lines [row] = BufferLine (from: source._lines [row])
+        }
+        _linesWithImagesCount = source._linesWithImagesCount
+        // A new list, never pushed to: its slots are its rows.
+        _lines.makeEmpty = { [unowned self] row in
+            lineAt (row) ?? getBlankLine (attribute: CharData.defaultAttr)
+        }
+    }
+
     /// Recalculates the count of lines with images (used after reflow operations)
     func recalculateLinesWithImagesCount() {
         var count = 0

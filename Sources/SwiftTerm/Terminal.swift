@@ -361,6 +361,16 @@ open class Terminal {
     private var synchronizedOutputBufferIsAlternate: Bool = false
     private var synchronizedOutputTimeoutItem: DispatchWorkItem?
 
+    /// The buffer synchronized output took its snapshot of, and how many
+    /// lines it has dropped from its top since: a row the snapshot did not
+    /// copy is read from it, that many rows earlier.
+    private final class SynchronizedOutputSource {
+        weak var buffer: Buffer?
+        var linesDropped = 0
+        init (_ buffer: Buffer) { self.buffer = buffer }
+    }
+    private var synchronizedOutputSource: SynchronizedOutputSource?
+
     var displayBuffer: Buffer {
         synchronizedOutputBuffer ?? buffer
     }
@@ -2536,7 +2546,7 @@ open class Terminal {
                 // after `clear`, until something scrolls. A selection, kept
                 // in buffer rows, has to move with its text too.
                 updateFullScreen ()
-                tdel?.linesDropped (source: self, count: scrollBackSize)
+                linesWereDropped (scrollBackSize)
                 tdel?.scrolled (source: self, yDisp: buffer.yDisp)
             }
             break;
@@ -5497,7 +5507,7 @@ open class Terminal {
                 // The oldest line made room for the new one: every line left
                 // now sits a row earlier, and positions a front end keeps in
                 // buffer rows (a selection) have to move with their text.
-                tdel?.linesDropped (source: self, count: 1)
+                linesWereDropped (1)
             }
         } else {
             // scrollTop is non-zero which means no line will be going to the
@@ -5550,6 +5560,18 @@ open class Terminal {
     public func emitLineFeed ()
     {
         tdel?.linefeed(source: self)
+    }
+
+    /// The first `count` lines of the active buffer are gone and every line
+    /// left sits `count` rows earlier: the delegate hears it (a selection
+    /// moves with its text), and so does the snapshot synchronized output
+    /// reads rows from.
+    private func linesWereDropped (_ count: Int)
+    {
+        if let source = synchronizedOutputSource, source.buffer === buffer {
+            source.linesDropped += count
+        }
+        tdel?.linesDropped (source: self, count: count)
     }
     
     //
@@ -5712,6 +5734,7 @@ open class Terminal {
         }
         synchronizedOutputActive = false
         synchronizedOutputBuffer = nil
+        synchronizedOutputSource = nil
         synchronizedOutputBufferIsAlternate = false
         synchronizedOutputTimeoutItem?.cancel()
         synchronizedOutputTimeoutItem = nil
@@ -5732,6 +5755,18 @@ open class Terminal {
         DispatchQueue.main.asyncAfter(deadline: .now() + synchronizedOutputTimeoutSeconds, execute: workItem)
     }
 
+    /// What the view shows while synchronized output holds the screen back
+    /// (`displayBuffer`): `source` as it is now, numbered as it is, with its
+    /// cursor and viewport. Only the rows the program can change before it
+    /// ends the update (the screen) and the rows on display are copied now;
+    /// any other row is copied from `source` the first time something reads
+    /// it — the view scrolled, a copy, a search — a row of history being
+    /// the same text until it is dropped from the top (one dropped since
+    /// reads blank until the update ends). It copied the whole buffer,
+    /// history and all, at every begin and freed it at the end: with 10 000
+    /// lines of history, 3 to 4 ms and 21 MB of every frame at 80×24 in a
+    /// release build, for a program that redraws this way (Claude Code does,
+    /// every frame).
     private func snapshotBuffer (_ source: Buffer) -> Buffer
     {
         let copy = Buffer(cols: source.cols, rows: source.rows, tabStopWidth: tabStopWidth, scrollback: source.scrollback)
@@ -5757,8 +5792,14 @@ open class Terminal {
         copy.savedCharset = source.savedCharset
         copy.scrollback = source.scrollback
 
-        for idx in 0..<source.lines.count {
-            copy.lines.push(BufferLine(from: source.lines[idx]))
+        let reader = SynchronizedOutputSource (source)
+        synchronizedOutputSource = reader
+        copy.adoptSnapshotLines (of: source) { row in
+            let now = row - reader.linesDropped
+            guard let buffer = reader.buffer, now >= 0, now < buffer.lines.count else {
+                return nil
+            }
+            return BufferLine (from: buffer.lines [now])
         }
         return copy
     }
