@@ -664,6 +664,76 @@ final class ScreenTests {
         TerminalTestHarness.assertLineText(terminal.buffer, row: 2, equals: "")
     }
 
+    // MARK: - Below the scrolling region
+
+    /// Four lines in a six-row screen whose scrolling region is its first
+    /// four rows, the cursor on `row` (1-based), below the region.
+    private func terminalWithARegionAbove(cursorOn row: Int, col: Int = 1) -> Terminal {
+        let (terminal, _) = TerminalTestHarness.makeTerminal(cols: 10, rows: 6)
+        terminal.feed(text: "r1\r\nr2\r\nr3\r\nr4\(esc)[1;4r\(esc)[\(row);\(col)H")
+        return terminal
+    }
+
+    private func assertTheRegionIsAsItWas(_ terminal: Terminal) {
+        for (row, text) in ["r1", "r2", "r3", "r4"].enumerated() {
+            #expect(TerminalTestHarness.lineText(buffer: terminal.buffer, row: row) == text,
+                    "the scrolling region scrolled: row \(row)")
+        }
+    }
+
+    /// Below the scrolling region the cursor is outside it: text that runs
+    /// past the last column goes on in the row under it, as xterm takes it
+    /// (an autowrap is an index there: xtermIndex moves the cursor down
+    /// below the margins) and xterm.js, and the region is left alone. The
+    /// region scrolled up instead, its top line lost, and the text went on
+    /// over the start of its own row.
+    @Test(arguments: ["AAAAAAAAAABBB", "ééééééééééèèè"])
+    func testAutowrapBelowTheScrollingRegionMovesDown(_ text: String) {
+        let terminal = terminalWithARegionAbove(cursorOn: 5)
+
+        terminal.feed(text: text)
+
+        assertTheRegionIsAsItWas(terminal)
+        let head = String(text.prefix(10)), tail = String(text.dropFirst(10))
+        TerminalTestHarness.assertLineText(terminal.buffer, row: 4, equals: head)
+        TerminalTestHarness.assertLineText(terminal.buffer, row: 5, equals: tail)
+        #expect(TerminalTestHarness.isWrapped(buffer: terminal.buffer, row: 5) == true)
+        TerminalTestHarness.assertCursor(terminal.buffer, col: 3, row: 5)
+    }
+
+    /// On the last row, below the region, there is no row under it: the
+    /// text goes on at the start of that row and nothing scrolls (xterm's
+    /// CursorDown stops at the last row).
+    @Test(arguments: ["AAAAAAAAAABBB", "ééééééééééèèè"])
+    func testAutowrapOnTheLastRowBelowTheScrollingRegionScrollsNothing(_ text: String) {
+        let terminal = terminalWithARegionAbove(cursorOn: 6)
+
+        terminal.feed(text: text)
+
+        assertTheRegionIsAsItWas(terminal)
+        TerminalTestHarness.assertLineText(terminal.buffer, row: 4, equals: "")
+        let rest = String(text.dropFirst(10)) + String(text.prefix(10).dropFirst(3))
+        TerminalTestHarness.assertLineText(terminal.buffer, row: 5, equals: rest)
+        TerminalTestHarness.assertCursor(terminal.buffer, col: 3, row: 5)
+    }
+
+    /// IND (and NEL, which is IND at the start of the line) below the
+    /// scrolling region moves the cursor down, and on the last row stays
+    /// there: it scrolled the region (xterm: xtermIndex, CursorDown below
+    /// the margins; xterm.js: index()).
+    @Test(arguments: ["\u{1b}D", "\u{1b}E"])
+    func testIndexBelowTheScrollingRegionMovesDown(_ index: String) {
+        let terminal = terminalWithARegionAbove(cursorOn: 5, col: 3)
+
+        terminal.feed(text: index)
+        #expect(terminal.buffer.y == 5)
+        terminal.feed(text: index)
+        #expect(terminal.buffer.y == 5)
+
+        assertTheRegionIsAsItWas(terminal)
+        #expect(terminal.buffer.x == (index == "\u{1b}D" ? 2 : 0))
+    }
+
     /// Test NEL (Next Line / ESC E)
     @Test func testNextLine() {
         let (terminal, _) = TerminalTestHarness.makeTerminal(cols: 10, rows: 3, scrollback: 0)

@@ -1186,10 +1186,12 @@ public final class Buffer {
             if _x > right {
                 guard wraparound else { break }
                 _x = marginMode ? _marginLeft : 0
-                if _y >= _scrollBottom {
+                if _y == _scrollBottom {
                     scroll(true)
-                } else {
+                } else if _y < _rows - 1 {
                     // `_y` is a screen row: its line is `_y + _yBase`.
+                    // Below the scrolling region too: the cursor is out of
+                    // it and moves down (see insertCharacter).
                     _y += 1
                     _lines[_y + _yBase].isWrapped = true
                 }
@@ -1259,9 +1261,16 @@ public final class Buffer {
             if wraparound {
                 _x = marginMode ? _marginLeft : 0
                 
-                if _y >= _scrollBottom {
+                // An autowrap is an index (xterm: WrapLine, xtermIndex):
+                // only the scrolling region's bottom row scrolls it. Below
+                // the region the cursor is out of it and moves down, and on
+                // the last row the text goes on in that row (CursorDown
+                // stops there; xterm.js the same). The region scrolled, its
+                // top line lost, and the text went on over the start of its
+                // own row.
+                if _y == _scrollBottom {
                     scroll (true)
-                } else {
+                } else if _y < _rows - 1 {
                     // The line already exists (eg. the initial viewport), mark it as a
                     // wrapped line. `_y` is a screen row: with history above the
                     // screen, a bare `_y` named a line of the history.

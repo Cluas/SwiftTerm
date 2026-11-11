@@ -5396,17 +5396,20 @@ open class Terminal {
         restrictCursor()
 
         let buffer = self.buffer
-        let newY = buffer.y + 1
 
         // When left/right margins are active, only scroll if cursor is within margins
         let canScroll = buffer.x >= buffer.marginLeft && buffer.x <= buffer.marginRight
 
-        if newY > buffer.scrollBottom {
+        // Only the scrolling region's bottom row scrolls it. Below the
+        // region the cursor is out of it and moves down, to the last row
+        // (xterm: xtermIndex, CursorDown; xterm.js: index); it scrolled the
+        // region.
+        if buffer.y == buffer.scrollBottom {
             if canScroll {
                 scroll ()
             }
-        } else {
-            buffer.y = newY
+        } else if buffer.y < rows - 1 {
+            buffer.y += 1
         }
         // If the end of the line is hit, prevent this action from wrapping around to the next line
         if buffer.x > cols {
