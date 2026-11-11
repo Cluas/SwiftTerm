@@ -560,6 +560,9 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
     }
     
     open func bufferActivated(source: Terminal) {
+        // The other screen: a selection names rows of the one that went, and
+        // Copy would take that screen's text (xterm.js clears it here too).
+        selection?.selectNone()
         updateScroller ()
     }
     

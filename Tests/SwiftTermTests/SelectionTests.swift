@@ -530,6 +530,30 @@ final class SelectionTests: TerminalDelegate {
         #expect(!selection.active, "rows \(rows.start)...\(rows.end) reached into the 16 lines dropped")
     }
 
+    // MARK: - Switching screens
+
+    /// How many times the terminal said the screen changed.
+    private var screenSwitches = 0
+    func bufferActivated(source: Terminal) { screenSwitches += 1 }
+
+    /// The delegate hears of a switch between the normal and the alternate
+    /// screen, the cue to drop what it kept in rows of the other one — and
+    /// only of a switch: a program that asks for the screen already showing
+    /// changes nothing, and a selection there should stay.
+    @Test func testOnlyARealScreenSwitchIsReported() {
+        let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 10, rows: 5))
+        terminal.feed(text: "\u{1b}[?1049h")
+        #expect(screenSwitches == 1)
+        terminal.feed(text: "\u{1b}[?1049h\u{1b}[?47h")
+        #expect(screenSwitches == 1, "asking for the alternate screen while it shows is not a switch")
+        terminal.feed(text: "\u{1b}[?1049l")
+        #expect(screenSwitches == 2)
+        terminal.feed(text: "\u{1b}[?1049l\u{1b}[?1047l")
+        #expect(screenSwitches == 2, "asking for the normal screen while it shows is not a switch")
+        terminal.feed(text: "\u{1b}[?47h\u{1b}[?47l")
+        #expect(screenSwitches == 4)
+    }
+
     // MARK: - Lines dropped from a full history
 
     /// Until the history is full a new line takes a new row and no row

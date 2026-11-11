@@ -175,6 +175,50 @@ struct ClearScrollbackViewTests {
         #expect(!view.selectionActive, "a selection outlived its text")
     }
 
+    // MARK: - A selection over a switch of screens
+
+    /// A program that switches to the alternate screen (less, vim, a
+    /// full-screen agent) puts other text where the selection was: the
+    /// selection kept its rows, and Copy took the other screen's text.
+    /// xterm.js clears it on the switch; so do the views now, both ways.
+    @MainActor
+    @Test func switchingToTheAlternateScreenDropsTheSelection() {
+        let view = viewWithHistory()
+        select(view, row: view.terminal.buffer.yBase + 2)
+        #expect(view.selectionActive)
+
+        view.feed(text: "\u{1b}[?1049h\u{1b}[Hfull screen")
+
+        #expect(!view.selectionActive, "the selection outlived the screen it was made on")
+        #expect(view.getSelection() == nil)
+    }
+
+    @MainActor
+    @Test func leavingTheAlternateScreenDropsTheSelection() throws {
+        let view = viewWithHistory()
+        view.feed(text: "\u{1b}[?1049h\u{1b}[Hfull screen")
+        select(view, row: view.terminal.buffer.yBase, length: 11)
+        #expect(try #require(view.getSelection()) == "full screen")
+
+        view.feed(text: "\u{1b}[?1049l")
+
+        #expect(!view.selectionActive, "the selection outlived the screen it was made on")
+        #expect(view.getSelection() == nil)
+    }
+
+    /// Asking for the screen that already shows changes nothing.
+    @MainActor
+    @Test func askingForTheScreenThatShowsKeepsTheSelection() throws {
+        let view = viewWithHistory()
+        view.feed(text: "\u{1b}[?1049h\u{1b}[Hfull screen")
+        select(view, row: view.terminal.buffer.yBase, length: 11)
+
+        view.feed(text: "\u{1b}[?1049h")
+
+        #expect(view.selectionActive)
+        #expect(view.getSelection() == "full screen")
+    }
+
     /// A full reset (`ESC c`, and DECCOLM either way) throws the buffer away,
     /// history and screen. The selection stayed, its rows pointing into the
     /// fresh buffer: a highlight over blank rows, and a copy of whatever the

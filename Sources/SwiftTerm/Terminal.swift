@@ -85,6 +85,8 @@ public protocol TerminalDelegate: AnyObject {
     func linefeed (source: Terminal)
     
     /// This method is invoked when the buffer changes from Normal to Alternate, or Alternate to Normal
+    /// (not when a program asks for the screen that already shows). Positions a front end kept
+    /// in rows of the other buffer, such as a selection, do not apply to this one.
     /// The default implementation does nothing.
     func bufferActivated (source: Terminal)
 
@@ -800,9 +802,11 @@ open class Terminal {
         normalBuffer.setupTabStops(tabStopWidth: tabStopWidth)
     }
     
-    private func activateNormalBuffer(clearAlt: Bool) {
+    /// Returns whether the screen changed: false when it already showed.
+    @discardableResult
+    private func activateNormalBuffer(clearAlt: Bool) -> Bool {
         if buffer === normalBuffer {
-            return
+            return false
         }
         normalBuffer.x = altBuffer.x
         normalBuffer.y = altBuffer.y
@@ -816,11 +820,14 @@ open class Terminal {
             altBuffer.clear ()
         }
         buffer = normalBuffer
+        return true
     }
     
-    private func activateAltBuffer(fillAttr: Attribute?) {
+    /// Returns whether the screen changed: false when it already showed.
+    @discardableResult
+    private func activateAltBuffer(fillAttr: Attribute?) -> Bool {
         if buffer === altBuffer {
-            return
+            return false
         }
         altBuffer.x = normalBuffer.x
         altBuffer.y = normalBuffer.y
@@ -831,6 +838,7 @@ open class Terminal {
         altBuffer.fillViewportRows(attribute: fillAttr)
         buffer = altBuffer
         clearKittyImages(in: altBuffer, isAlternateBuffer: true)
+        return true
     }
     
     func setupTabStops (index: Int = -1)
@@ -4292,15 +4300,18 @@ open class Terminal {
             case 47: // normal screen buffer
                 fallthrough
             case 1047: // normal screen buffer - clearing it first
-                   // Ensure the selection manager has the correct buffer
-                activateNormalBuffer(clearAlt: par == 1047 || par == 1049)
+                let switched = activateNormalBuffer(clearAlt: par == 1047 || par == 1049)
                 if (par == 1049){
                     cmdRestoreCursor ([], [])
                 }
                 refresh (startRow: 0, endRow: rows - 1)
                 syncScrollArea ()
                 showCursor ()
-                tdel?.bufferActivated(source: self)
+                // Only when the screen changed: what a front end kept in
+                // rows of the other one (a selection) no longer applies.
+                if switched {
+                    tdel?.bufferActivated(source: self)
+                }
                 
             case 2004: // bracketed paste mode (https://cirw.in/blog/bracketed-paste)
                 bracketedPasteMode = false
@@ -4532,11 +4543,13 @@ open class Terminal {
             case 47: // alt screen buffer
                 fallthrough
             case 1047: // alt screen buffer
-                activateAltBuffer (fillAttr: nil)
+                let switched = activateAltBuffer (fillAttr: nil)
                 refresh (startRow: 0, endRow: rows - 1)
                 syncScrollArea ()
                 showCursor ()
-                tdel?.bufferActivated(source: self)
+                if switched {
+                    tdel?.bufferActivated(source: self)
+                }
                 
             case 2004: // bracketed paste mode (https://cirw.in/blog/bracketed-paste)
                 // TODO: must implement bracketed paste mode

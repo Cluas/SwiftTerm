@@ -1451,6 +1451,11 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     var lineLeading: CGFloat = 0
     
     open func bufferActivated(source: Terminal) {
+        // The other screen: a selection names rows of the one that went, and
+        // Copy would take that screen's text (xterm.js clears it here too).
+        // selectionChanged takes the edit menu with it.
+        selection?.selectNone()
+        disableSelectionPanGesture()
         updateScroller ()
     }
     
