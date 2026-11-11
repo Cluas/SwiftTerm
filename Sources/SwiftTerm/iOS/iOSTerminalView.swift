@@ -2191,7 +2191,42 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     public var smartQuotesType: UITextSmartQuotesType = .no
     public var smartDashesType: UITextSmartDashesType = .no
     public var smartInsertDeleteType: UITextSmartInsertDeleteType = .no
-    
+
+    // Three more offers of text that, taken, is typed into the remote: off,
+    // as autocorrection is. A view that does not answer these traits gets
+    // the system's default, which offered them on the terminal too (setting
+    // autocorrection off does not turn inline predictions off). The raw
+    // values keep them settable on a system that has no such trait.
+
+    private var inlinePredictionTypeValue = 1 // UITextInlinePredictionType.no
+
+    /// Inline predictions: the rest of a word or phrase in grey ahead of the
+    /// caret, which a space accepts. Off.
+    @available(iOS 17.0, visionOS 1.0, *)
+    public var inlinePredictionType: UITextInlinePredictionType {
+        get { UITextInlinePredictionType (rawValue: inlinePredictionTypeValue) ?? .no }
+        set { inlinePredictionTypeValue = newValue.rawValue }
+    }
+
+    private var mathExpressionCompletionTypeValue = 1 // UITextMathExpressionCompletionType.no
+
+    /// Math results: the result of a sum typed with "=", offered to insert.
+    /// Off.
+    @available(iOS 18.0, visionOS 2.0, *)
+    public var mathExpressionCompletionType: UITextMathExpressionCompletionType {
+        get { UITextMathExpressionCompletionType (rawValue: mathExpressionCompletionTypeValue) ?? .no }
+        set { mathExpressionCompletionTypeValue = newValue.rawValue }
+    }
+
+    private var writingToolsBehaviorValue = -1 // UIWritingToolsBehavior.none
+
+    /// Writing Tools: proofreading and rewriting the text in place. None.
+    @available(iOS 18.0, visionOS 2.4, *)
+    public var writingToolsBehavior: UIWritingToolsBehavior {
+        get { UIWritingToolsBehavior (rawValue: writingToolsBehaviorValue) ?? .none }
+        set { writingToolsBehaviorValue = newValue.rawValue }
+    }
+
     open override var canBecomeFirstResponder: Bool {
         true
     }

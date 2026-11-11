@@ -445,5 +445,29 @@ struct iOSTerminalViewTests {
         #expect(!filled.contains(type), "\(type.rawValue)")
         #expect(!type.rawValue.isEmpty)
     }
+
+    /// A trait the view answers, read the way UIKit reads it (nil: the view
+    /// does not answer it, and UIKit takes its default).
+    private func trait(_ view: TerminalView, _ name: String) -> Int? {
+        guard view.responds(to: NSSelectorFromString(name)) else { return nil }
+        return (view.value(forKey: name) as? NSNumber)?.intValue
+    }
+
+    /// What a text field gets by default the keyboard and the system offered
+    /// on the terminal too, as the view did not answer these traits: inline
+    /// predictions (grey text ahead of the caret, which a space accepts),
+    /// the result of a sum typed with "=" (math results), Writing Tools
+    /// rewriting the text. Each of them, taken, is typed into the remote; a
+    /// terminal turns them off, as it does autocorrection.
+    @Test func theTextInputTakesNoPredictionsMathResultsOrWritingTools() {
+        let view = makeView()
+        if #available(iOS 17.0, *) {
+            #expect(trait(view, "inlinePredictionType") == UITextInlinePredictionType.no.rawValue)
+        }
+        if #available(iOS 18.0, *) {
+            #expect(trait(view, "mathExpressionCompletionType") == UITextMathExpressionCompletionType.no.rawValue)
+            #expect(trait(view, "writingToolsBehavior") == UIWritingToolsBehavior.none.rawValue)
+        }
+    }
 }
 #endif
