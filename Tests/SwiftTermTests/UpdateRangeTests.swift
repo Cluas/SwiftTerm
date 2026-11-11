@@ -213,7 +213,7 @@ final class UpdateRangeTests: TerminalDelegate {
     /// clears the screen: the whole screen repaints and the view hears where
     /// the viewport is. It keeps the history and replaces no buffer (it was
     /// a full reset; ColumnModeTests).
-    @Test(arguments: ["\u{1b}[?3h", "\u{1b}[?3l"])
+    @Test(arguments: ["\u{1b}[?40h\u{1b}[?3h", "\u{1b}[?40h\u{1b}[?3l"])
     func columnModeTellsTheViewWhereTheViewportIsAndRepaintsIt(sequence: String) {
         let t = terminalWithHistory(at: .inHistory)
 

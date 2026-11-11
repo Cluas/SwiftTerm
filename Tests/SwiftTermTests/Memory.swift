@@ -71,7 +71,7 @@ final class SwiftTermMemory {
     /// and the terminal holds the buffer: after a single reset the terminal,
     /// its buffers and its history were never freed. No reset at all (`""`)
     /// is the control; DECCOLM, either way, used to be a full reset too.
-    @Test(arguments: ["", "\u{1b}c", "\u{1b}[?3h", "\u{1b}[?3l"])
+    @Test(arguments: ["", "\u{1b}c", "\u{1b}[?40h\u{1b}[?3h", "\u{1b}[?40h\u{1b}[?3l"])
     func testTerminalIsFreedAfterAFullReset(_ reset: String) {
         let delegate = EmptyTerminalDelegate()
         weak var released: Terminal?

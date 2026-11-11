@@ -240,7 +240,7 @@ struct ClearScrollbackViewTests {
     /// rewraps the history: a selection goes, as it does when the view
     /// itself resizes (and as xterm's ClearScreen disowns it).
     @MainActor
-    @Test(arguments: ["\u{1b}[?3h", "\u{1b}[?3l"])
+    @Test(arguments: ["\u{1b}[?40h\u{1b}[?3h", "\u{1b}[?40h\u{1b}[?3l"])
     func columnModeDropsTheSelection(_ sequence: String) {
         let view = viewWithHistory()
         select(view, row: view.terminal.buffer.yBase + 2)

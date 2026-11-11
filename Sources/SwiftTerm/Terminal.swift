@@ -452,7 +452,11 @@ open class Terminal {
     var gLevel: UInt8 = 0
     var cursorBlink: Bool = false
     
-    var allow80To132 = true
+    /// Whether DECCOLM (`CSI ? 3 h` / `l`) may change the columns: mode 40,
+    /// off until a program turns it on, as in xterm (its c132 resource,
+    /// false by default), which ignores DECCOLM with it off. It was on, so
+    /// any remote could make the window 132 or 80 columns wide.
+    var allow80To132 = false
     
     public var parser: EscapeSequenceParser
     var kittyGraphicsState = KittyGraphicsState()
@@ -923,7 +927,7 @@ open class Terminal {
         cc.send8bit = false
         conformance = .vt500
         
-        allow80To132 = true
+        allow80To132 = false
         
         xtermTitleSetUtf = false
         xtermTitleQueryUtf = false

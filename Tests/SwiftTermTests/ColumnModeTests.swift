@@ -6,7 +6,9 @@
 //  and makes its lines single width, resets the margins and puts the cursor
 //  home, and leaves everything else alone. It was a full reset here: the
 //  history went, every mode went back to its default, and a program on the
-//  alternate screen was put back on the normal one.
+//  alternate screen was put back on the normal one. xterm does it only with
+//  mode 40 on (CSI ? 40 h; the c132 resource, false by default), and so
+//  does the terminal now.
 //
 
 import Testing
@@ -14,7 +16,10 @@ import Testing
 @testable import SwiftTerm
 
 final class ColumnModeTests: TerminalDelegate {
-    func send(source: Terminal, data: ArraySlice<UInt8>) {}
+    private var responses: [String] = []
+    func send(source: Terminal, data: ArraySlice<UInt8>) {
+        responses.append(String(decoding: data, as: UTF8.self))
+    }
 
     private var resets = 0
     func terminalReset(source: Terminal) { resets += 1 }
@@ -24,9 +29,13 @@ final class ColumnModeTests: TerminalDelegate {
 
     private let esc = "\u{1b}"
 
-    /// Twenty lines of output and a prompt on a five-row screen.
-    private func terminalWithHistory() -> Terminal {
+    /// Twenty lines of output and a prompt on a five-row screen, by a
+    /// program that allowed DECCOLM (mode 40).
+    private func terminalWithHistory(allowingColumnMode: Bool = true) -> Terminal {
         let t = Terminal(delegate: self, options: TerminalOptions(cols: 100, rows: 5, scrollback: 50))
+        if allowingColumnMode {
+            t.feed(text: "\(esc)[?40h")
+        }
         for i in 0 ..< 20 {
             t.feed(text: "line \(i)\r\n")
         }
@@ -123,5 +132,31 @@ final class ColumnModeTests: TerminalDelegate {
         #expect(t.cols == cols)
         #expect(text(t, line: t.buffer.yBase + t.buffer.y) == "$ prompt")
         #expect(sizeChanges == 0)
+    }
+
+    /// Mode 40 is off until a program turns it on, as in xterm, and again
+    /// after a full reset: a remote could make the window 132 or 80 columns
+    /// wide, and clear the screen, with DECCOLM alone. DECRQM says so.
+    @Test(arguments: ["", "\u{1b}[?40h\u{1b}c"])
+    func columnModeIsNotAllowedUntilAProgramAllowsIt(before: String) {
+        let t = terminalWithHistory(allowingColumnMode: false)
+        t.feed(text: before)
+        t.feed(text: "\r\(esc)[K$ prompt")
+        let cols = t.cols
+
+        for sequence in ["\(esc)[?3h", "\(esc)[?3l"] {
+            t.feed(text: sequence)
+            #expect(t.cols == cols, "\(sequence.debugDescription) made the window \(t.cols) columns wide")
+            #expect(text(t, line: t.buffer.yBase + t.buffer.y) == "$ prompt", "the screen was cleared")
+        }
+        #expect(sizeChanges == 0)
+
+        responses = []
+        t.feed(text: "\(esc)[?40$p")
+        #expect(responses == ["\(esc)[?40;2$y"])
+        t.feed(text: "\(esc)[?40h\(esc)[?40$p")
+        #expect(responses.last == "\(esc)[?40;1$y")
+        t.feed(text: "\(esc)[?3h")
+        #expect(t.cols == 132)
     }
 }
