@@ -163,7 +163,8 @@ class SelectionService: CustomDebugStringConvertible {
         var newPos = Position  (col: col, row: row + terminal.displayBuffer.yDisp)
         if selectingRows {
             if Position.compare(start, newPos) == .before {
-                newPos.col = terminal.cols - 1
+                // Through the row's last cell: `end` is exclusive.
+                newPos.col = terminal.cols
             } else {
                 newPos.col = 0
             }
@@ -320,7 +321,9 @@ class SelectionService: CustomDebugStringConvertible {
     public func select(row: Int)
     {
         start = Position(col: 0, row: row)
-        end = Position(col: terminal.cols-1, row: row)
+        // `end` is exclusive: `cols - 1` left the row's last cell out of
+        // the copy, as it did for Select All.
+        end = Position(col: terminal.cols, row: row)
         selectingRows = true
         selectionMode = .row
         setActiveAndNotify()

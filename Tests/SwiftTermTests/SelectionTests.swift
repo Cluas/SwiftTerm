@@ -198,7 +198,33 @@ final class SelectionTests: TerminalDelegate {
         #expect(selection.start.row == 1)
         #expect(selection.end.row == 1)
         #expect(selection.start.col == 0)
-        #expect(selection.end.col == terminal.cols - 1)
+        #expect(selection.end.col == terminal.cols, "the end is exclusive")
+    }
+
+    /// A triple-click selects the row, and the copy is the row: its last
+    /// cell went missing (the end is exclusive and was set to the last
+    /// column, the cause Select All had).
+    @Test func testSelectRowCopiesAFullRowWhole() {
+        let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 10, rows: 5))
+        let selection = SelectionService(terminal: terminal)
+        terminal.feed(text: "first\r\n0123456789")
+
+        selection.select(row: 1)
+
+        #expect(selection.getSelectedText() == "0123456789")
+    }
+
+    /// Shift-click after a triple-click extends by whole rows: forwards, the
+    /// last row it reaches comes whole too.
+    @Test func testShiftExtendingARowSelectionTakesTheLastRowWhole() {
+        let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 10, rows: 5))
+        let selection = SelectionService(terminal: terminal)
+        terminal.feed(text: "first\r\nabcdefghij\r\n0123456789")
+
+        selection.select(row: 0)
+        selection.shiftExtend(row: 2, col: 3)
+
+        #expect(selection.getSelectedText() == "first\nabcdefghij\n0123456789")
     }
 
     /// Test select all
