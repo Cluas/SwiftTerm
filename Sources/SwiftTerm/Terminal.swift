@@ -841,8 +841,19 @@ open class Terminal {
         rows = max (options.rows, MINIMUM_ROWS)
         
         if isReset {
+            // A full reset starts over on a fresh normal buffer with the
+            // cursor at home, the way xterm does (ReallyReset: FromAlternate
+            // clearing first, ClearScreen, CursorSet (0, 0)). Switching to it
+            // as leaving the alternate screen does handed it the alternate
+            // screen's cursor, wherever a full-screen program had left it;
+            // and the alternate screen, if it was showing, is cleared on the
+            // way out, or the program's screen came back the next time
+            // something switched to it.
+            if buffer === altBuffer {
+                altBuffer.clear ()
+            }
             resetNormalBuffer()
-            activateNormalBuffer(clearAlt: false)
+            buffer = normalBuffer
         } else {
             normalBuffer.resize(newCols: cols, newRows: rows)
             altBuffer.resize(newCols: cols, newRows: rows)
