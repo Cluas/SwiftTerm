@@ -596,6 +596,12 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
         selection?.linesDropped(count: count)
     }
 
+    open func terminalReset(source: Terminal) {
+        // A full reset threw the buffer away, history and screen: a
+        // selection would name rows of the fresh one.
+        selection?.selectNone()
+    }
+
     open func linefeed(source: Terminal) {
         // Preserve manual selection while output is streaming when mouse reporting is disabled.
         if allowMouseReporting {

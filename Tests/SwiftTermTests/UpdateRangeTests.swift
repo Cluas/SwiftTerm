@@ -24,6 +24,11 @@ final class UpdateRangeTests: TerminalDelegate {
     private var announcedYDisp: Int?
     func scrolled(source: Terminal, yDisp: Int) { announcedYDisp = yDisp }
 
+    /// How many times the terminal said it replaced its buffers (a full
+    /// reset): the view's cue to drop what it kept in rows of the old ones.
+    private var resets = 0
+    func terminalReset(source: Terminal) { resets += 1 }
+
     /// What a row draws from: every cell (character, width, link, colors and
     /// style), the line's render mode, its images.
     private struct RowSnapshot: Equatable {
@@ -197,6 +202,7 @@ final class UpdateRangeTests: TerminalDelegate {
         #expect(t.displayBuffer.lines.count == t.rows, "a reset leaves no history")
         #expect(t.displayBuffer.yDisp == 0)
         #expect(announcedYDisp == 0, "the view was not told where the viewport went")
+        #expect(resets == 1, "the view was not told the buffers were replaced")
         let range = t.getUpdateRange()
         #expect(range.map { $0.startY <= 0 && $0.endY >= t.rows - 1 } == true,
                 "the whole screen must repaint, range \(range.map { "\($0.startY)...\($0.endY)" } ?? "none")")
@@ -215,6 +221,7 @@ final class UpdateRangeTests: TerminalDelegate {
         #expect(t.displayBuffer.lines.count == t.rows, "DECCOLM resets: no history")
         #expect(t.displayBuffer.yDisp == 0)
         #expect(announcedYDisp == 0, "the view was not told where the viewport went")
+        #expect(resets == 1, "the view was not told the buffers were replaced")
         let range = t.getUpdateRange()
         #expect(range.map { $0.startY <= 0 && $0.endY >= t.rows - 1 } == true,
                 "the whole screen must repaint, range \(range.map { "\($0.startY)...\($0.endY)" } ?? "none")")

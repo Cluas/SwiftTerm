@@ -68,7 +68,7 @@ struct ClearScrollbackViewTests {
         #expect(host.positions == [0], "the viewport moved to the top without a word: \(host.positions)")
     }
 
-    // MARK: - A selection over an erased history
+    // MARK: - A selection over an erased history, and over a reset
 
     /// A view with two hundred lines of output, of which the screen shows
     /// the last few, keeping its selection while output arrives (a host that
@@ -137,6 +137,24 @@ struct ClearScrollbackViewTests {
         view.feed(text: "\u{1b}[3J")
 
         #expect(!view.selectionActive, "a selection of partly erased text survived")
+        #expect(view.getSelection() == nil)
+    }
+
+    /// A full reset (`ESC c`, and DECCOLM either way) throws the buffer away,
+    /// history and screen. The selection stayed, its rows pointing into the
+    /// fresh buffer: a highlight over blank rows, and a copy of whatever the
+    /// next output put there. The iOS view's own Reset item dropped it; a
+    /// reset the remote sends did not.
+    @MainActor
+    @Test(arguments: ["\u{1b}c", "\u{1b}[?3h", "\u{1b}[?3l"])
+    func aFullResetDropsTheSelection(_ reset: String) {
+        let view = viewWithHistory()
+        select(view, row: view.terminal.buffer.yBase + 2)
+        #expect(view.selectionActive)
+
+        view.feed(text: reset)
+
+        #expect(!view.selectionActive, "the selection survived the buffer it was made in")
         #expect(view.getSelection() == nil)
     }
 }

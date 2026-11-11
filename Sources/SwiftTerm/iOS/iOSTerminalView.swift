@@ -1537,6 +1537,15 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         selection?.linesDropped(count: count)
     }
 
+    open func terminalReset(source: Terminal) {
+        // A full reset threw the buffer away, history and screen: a
+        // selection would name rows of the fresh one. The Reset menu item
+        // (resetCmd) always dropped it; a reset the remote sends does too.
+        // selectionChanged then takes the edit menu with it.
+        selection?.selectNone()
+        disableSelectionPanGesture()
+    }
+
     open func linefeed(source: Terminal) {
         // Preserve manual selection while output is streaming when mouse reporting is disabled.
         if allowMouseReporting {

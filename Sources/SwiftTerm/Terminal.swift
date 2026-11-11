@@ -95,6 +95,12 @@ public protocol TerminalDelegate: AnyObject {
     /// The default implementation does nothing.
     func linesDropped (source: Terminal, count: Int)
 
+    /// Invoked after a full reset (`ESC c`, DECCOLM) put fresh buffers in place of the
+    /// old ones: positions a front end kept into them, such as a selection, point at
+    /// nothing now.
+    /// The default implementation does nothing.
+    func terminalReset (source: Terminal)
+
     /// Invoked when synchronized output mode is toggled on or off.
     /// The default implementation does nothing.
     func synchronizedOutputChanged (source: Terminal, active: Bool)
@@ -5285,6 +5291,9 @@ open class Terminal {
         // buffer that are not there — a blank screen after `reset`, until
         // something scrolls.
         tdel?.scrolled (source: self, yDisp: buffer.yDisp)
+        // And whatever the view kept in rows of the old buffers, a selection
+        // first, points into buffers that are gone.
+        tdel?.terminalReset (source: self)
     }
 
     // Support for:
@@ -6917,6 +6926,10 @@ public extension TerminalDelegate {
     }
 
     func linesDropped(source: Terminal, count: Int) {
+        // nothing
+    }
+
+    func terminalReset(source: Terminal) {
         // nothing
     }
 
