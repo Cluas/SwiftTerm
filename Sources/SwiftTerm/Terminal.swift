@@ -775,7 +775,11 @@ open class Terminal {
     
     public func resetNormalBuffer() {
         normalBuffer = Buffer(cols: cols, rows: rows, tabStopWidth: tabStopWidth, scrollback: options.scrollback)
-        normalBuffer.scroll = scroll(isWrapped:)
+        // Weakly, as in `init`: the terminal holds the buffer, and a strong
+        // callback (the bound method `scroll(isWrapped:)` captures `self`)
+        // closed a cycle that kept the terminal, its buffers and its history
+        // alive after any full reset.
+        normalBuffer.scroll = { [weak self] wrapped in self?.scroll(isWrapped: wrapped) }
 
         normalBuffer.fillViewportRows()
         normalBuffer.setupTabStops(tabStopWidth: tabStopWidth)
