@@ -2475,9 +2475,12 @@ open class Terminal {
             updateRange (j)
             // Deleted front part of line and everything before. This line will no longer be wrapped.
             eraseInBufferLine (y: j, start: 0, end: buffer.x + 1, clearWrap: true)
-            if buffer.x + 1 >= cols {
+            if buffer.x + 1 >= cols && j + 1 < rows {
                 // Deleted entire previous line. This next line can no longer be wrapped.
-                buffer.lines [j + 1].isWrapped = false
+                // `j` is a screen row: the line under it is at yBase + j + 1 (a bare
+                // j + 1 was a line of history once there is any), and the bottom
+                // row has none on the screen.
+                buffer.lines [buffer.yBase + j + 1].isWrapped = false
             }
             while (j != 0) {
                 j -= 1

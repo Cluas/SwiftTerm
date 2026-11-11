@@ -216,6 +216,70 @@ final class ScreenTests {
         TerminalTestHarness.assertLineText(terminal.buffer, row: 2, equals: "line3")
     }
 
+    /// The text of buffer lines `first...last` as a selection copies it:
+    /// a wrapped line runs on, a line that is not wrapped starts a new one.
+    private func copiedText(_ terminal: Terminal, lines first: Int, _ last: Int) -> String {
+        terminal.getText(start: Position(col: 0, row: first), end: Position(col: terminal.cols, row: last))
+    }
+
+    /// ED 1 from the last column erases the cursor's whole row, so the screen
+    /// row under it no longer continues it and loses its wrap flag. The flag
+    /// was cleared on the line whose index in the whole buffer is that screen
+    /// row's number (inherited from xterm.js): with history above the screen,
+    /// a line of history — a wrapped line there then copies with a line break
+    /// in it — while the row under the erased one kept its flag.
+    @Test func testEraseAboveFromTheLastColumnUnwrapsTheRowBelowNotAHistoryLine() {
+        let (terminal, _) = TerminalTestHarness.makeTerminal(cols: 10, rows: 4, scrollback: 20)
+        let buffer = terminal.buffer
+        // Buffer line 3 continues line 2; four more lines push both into
+        // the history.
+        terminal.feed(text: "x0\r\nx1\r\nAAAAAAAAAABBB\r\n")
+        for i in 0 ..< 3 {
+            terminal.feed(text: "y\(i)\r\n")
+        }
+        #expect(buffer.yBase > 3, "line 3 is history")
+        #expect(buffer.lines[3].isWrapped)
+        #expect(copiedText(terminal, lines: 2, 3) == "AAAAAAAAAABBB")
+
+        // On the screen: the bottom row continues the one above it.
+        terminal.feed(text: "CCCCCCCCCCDDD")
+        #expect(TerminalTestHarness.isWrapped(buffer: buffer, row: 3) == true)
+
+        // Cursor in the last column of row 2, erase to the top.
+        terminal.feed(text: "\(esc)[3;10H\(esc)[1J")
+
+        #expect(TerminalTestHarness.isWrapped(buffer: buffer, row: 3) == false,
+                "the row under the erased one still continues it")
+        #expect(buffer.lines[3].isWrapped, "a wrapped line of history lost its wrap")
+        #expect(copiedText(terminal, lines: 2, 3) == "AAAAAAAAAABBB")
+        TerminalTestHarness.assertLineText(buffer, row: 2, equals: "")
+        TerminalTestHarness.assertLineText(buffer, row: 3, equals: "DDD")
+    }
+
+    /// From the bottom row there is no row under the erased one. The flag
+    /// was cleared on the buffer line numbered `rows`: with enough history, a
+    /// line of it.
+    @Test func testEraseAboveFromTheBottomRightLeavesTheHistoryAlone() {
+        let (terminal, _) = TerminalTestHarness.makeTerminal(cols: 10, rows: 4, scrollback: 20)
+        let buffer = terminal.buffer
+        terminal.feed(text: "x0\r\nx1\r\nx2\r\n")
+        // Buffer line 4 continues line 3.
+        terminal.feed(text: "AAAAAAAAAABBB\r\n")
+        for i in 0 ..< 3 {
+            terminal.feed(text: "y\(i)\r\n")
+        }
+        #expect(buffer.yBase > 4, "line 4 is history")
+        #expect(buffer.lines[4].isWrapped)
+
+        terminal.feed(text: "\(esc)[4;10H\(esc)[1J")
+
+        #expect(buffer.lines[4].isWrapped, "a wrapped line of history lost its wrap")
+        #expect(copiedText(terminal, lines: 3, 4) == "AAAAAAAAAABBB")
+        for row in 0 ..< terminal.rows {
+            TerminalTestHarness.assertLineText(buffer, row: row, equals: "")
+        }
+    }
+
     /// Test ED 2 - Erase entire screen
     /// From Ghostty: Screen clearRows active multi line
     @Test func testEraseDisplayAll() {
