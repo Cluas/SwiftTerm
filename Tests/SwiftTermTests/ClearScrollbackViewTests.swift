@@ -140,6 +140,41 @@ struct ClearScrollbackViewTests {
         #expect(view.getSelection() == nil)
     }
 
+    /// Once the history is full, every line of output pushes the oldest one
+    /// out and moves every row left up by one. The selection kept its row
+    /// numbers: with each new line it slid a line down the text, highlight
+    /// and copy.
+    @MainActor
+    @Test func aSelectionStaysOnItsTextWhileLinesScrollIntoAFullHistory() throws {
+        let view = viewWithHistory()
+        view.terminal.changeScrollback(50)
+        #expect(view.terminal.buffer.lines.isFull, "the history is full")
+        select(view, row: view.terminal.buffer.yBase + 2)
+        let selected = try #require(view.getSelection())
+        #expect(selected.hasPrefix("line 1"), "\(selected)")
+
+        for i in 0 ..< 5 {
+            view.feed(text: "more \(i)\r\n")
+        }
+
+        #expect(view.selectionActive)
+        #expect(view.getSelection() == selected, "the selection slid onto other text")
+    }
+
+    /// The text of a selection on the oldest line leaves with it.
+    @MainActor
+    @Test func aSelectionGoesWithItsTextOutOfAFullHistory() throws {
+        let view = viewWithHistory()
+        view.terminal.changeScrollback(50)
+        #expect(view.terminal.buffer.lines.isFull, "the history is full")
+        select(view, row: 0, length: 4)
+        #expect(view.selectionActive)
+
+        view.feed(text: "more\r\n")
+
+        #expect(!view.selectionActive, "a selection outlived its text")
+    }
+
     /// A full reset (`ESC c`, and DECCOLM either way) throws the buffer away,
     /// history and screen. The selection stayed, its rows pointing into the
     /// fresh buffer: a highlight over blank rows, and a copy of whatever the

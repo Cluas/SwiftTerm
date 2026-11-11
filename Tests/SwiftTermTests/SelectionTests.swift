@@ -529,4 +529,55 @@ final class SelectionTests: TerminalDelegate {
 
         #expect(!selection.active, "rows \(rows.start)...\(rows.end) reached into the 16 lines dropped")
     }
+
+    // MARK: - Lines dropped from a full history
+
+    /// Until the history is full a new line takes a new row and no row
+    /// number changes. Once it is full, every line that scrolls in pushes the
+    /// oldest one out and every line left sits a row earlier: the delegate
+    /// hears of one line dropped per line. The alternate screen keeps no
+    /// history, so it is always full.
+    @Test func testAFullHistoryReportsALineDroppedForEachNewLine() {
+        let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 10, rows: 30, scrollback: 10))
+        // 29 line feeds reach the bottom row, ten more fill the history.
+        for i in 0 ..< 39 {
+            terminal.feed(text: "line \(i)\r\n")
+        }
+        #expect(terminal.buffer.lines.isFull)
+        #expect(droppedLines == [], "nothing was dropped before the history was full")
+
+        terminal.feed(text: "line 39\r\nline 40\r\nline 41\r\n")
+        #expect(droppedLines == [1, 1, 1])
+
+        droppedLines = []
+        terminal.feed(text: "\u{1b}[?1049h\u{1b}[30;1H\r\n\r\n")
+        #expect(droppedLines == [1, 1], "the alternate screen dropped its top row")
+    }
+
+    /// A selection on the screen while output scrolls on, with the history
+    /// full: it kept its row numbers while the rows moved up under it, so
+    /// with every new line it slid a line further down the text, highlight
+    /// and copy, and went to another line's text entirely.
+    @Test func testASelectionStaysOnItsTextAsLinesScrollIntoAFullHistory() throws {
+        let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 10, rows: 5, scrollback: 10))
+        let selection = SelectionService(terminal: terminal)
+        for i in 0 ..< 20 {
+            terminal.feed(text: "line \(i)\r\n")
+        }
+        #expect(terminal.buffer.lines.isFull)
+        let row = terminal.buffer.yBase + 2
+        selection.setSelection(start: Position(col: 0, row: row), end: Position(col: 7, row: row))
+        let selected = selection.getSelectedText()
+        #expect(selected == "line 18")
+
+        droppedLines = []
+        terminal.feed(text: "line 20\r\nline 21\r\n")
+        // What the views do with what they hear.
+        for count in droppedLines {
+            selection.linesDropped(count: count)
+        }
+
+        #expect(selection.active)
+        #expect(selection.getSelectedText() == selected, "the selection slid onto other text")
+    }
 }

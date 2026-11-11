@@ -591,8 +591,8 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
     }
     
     open func linesDropped(source: Terminal, count: Int) {
-        // The selection is kept in buffer rows; erasing the saved lines moved
-        // every row that is left.
+        // The selection is kept in buffer rows; erasing the saved lines, or a
+        // line scrolling into a full history, moved every row that is left.
         selection?.linesDropped(count: count)
     }
 

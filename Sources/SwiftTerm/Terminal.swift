@@ -88,10 +88,12 @@ public protocol TerminalDelegate: AnyObject {
     /// The default implementation does nothing.
     func bufferActivated (source: Terminal)
 
-    /// Invoked after the terminal dropped the first `count` lines of the active buffer
-    /// without scrolling them through the screen, so that every line left now sits
-    /// `count` rows earlier: erasing the saved lines (`CSI 3 J`) does this. A front end
-    /// that keeps positions into the buffer, such as a selection, moves them by as much.
+    /// Invoked after the terminal dropped the first `count` lines of the active buffer,
+    /// so that every line left now sits `count` rows earlier: erasing the saved lines
+    /// (`CSI 3 J`) does this, and so does every line that scrolls in once the history
+    /// is full: the oldest line goes to make room for it (on the alternate screen,
+    /// which keeps no history, the top row does). A front end that keeps positions
+    /// into the buffer, such as a selection, moves them by as much.
     /// The default implementation does nothing.
     func linesDropped (source: Terminal, count: Int)
 
@@ -5458,6 +5460,10 @@ open class Terminal {
                 if userScrolling {
                     buffer.yDisp = max (buffer.yDisp - 1, 0)
                 }
+                // The oldest line made room for the new one: every line left
+                // now sits a row earlier, and positions a front end keeps in
+                // buffer rows (a selection) have to move with their text.
+                tdel?.linesDropped (source: self, count: 1)
             }
         } else {
             // scrollTop is non-zero which means no line will be going to the

@@ -545,10 +545,10 @@ class SelectionService: CustomDebugStringConvertible {
     
     /**
      * The first `count` lines of the buffer were dropped and every line after
-     * them now sits `count` rows earlier (erasing the saved lines, ED 3). A
-     * selection on lines that are left moves with its text. One that reached
-     * into the dropped lines goes with them: part of its text is gone, and
-     * its rows now hold other text.
+     * them now sits `count` rows earlier (erasing the saved lines, ED 3; a
+     * line scrolling into a full history). A selection on lines that are left
+     * moves with its text. One that reached into the dropped lines goes with
+     * them: part of its text is gone, and its rows now hold other text.
      */
     func linesDropped (count: Int)
     {

@@ -1531,9 +1531,10 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
     }
     
     open func linesDropped(source: Terminal, count: Int) {
-        // The selection is kept in buffer rows; erasing the saved lines moved
-        // every row that is left. A selection that goes fires
-        // selectionChanged, which takes the menu and the drag gesture with it.
+        // The selection is kept in buffer rows; erasing the saved lines, or a
+        // line scrolling into a full history, moved every row that is left.
+        // A selection that goes fires selectionChanged, which takes the menu
+        // and the drag gesture with it.
         selection?.linesDropped(count: count)
     }
 
