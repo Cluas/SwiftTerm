@@ -3125,6 +3125,11 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         keyRepeat?.invalidate()
         keyRepeat = nil
         commandKeysUp(in: presses)
+        // The key is up as far as the remote is concerned too: with the
+        // kitty protocol's event reports on, a program that heard the press
+        // and never the release takes the key as held (a game keeps moving,
+        // an editor keeps a modifier down).
+        sendKittyReleases(for: presses)
         super.pressesCancelled(presses, with: event)
     }
 
@@ -3427,27 +3432,32 @@ open class TerminalView: UIScrollView, UITextInputTraits, UIKeyInput, UIScrollVi
         keyRepeat?.invalidate()
         keyRepeat = nil
         commandKeysUp(in: presses)
+        sendKittyReleases(for: presses)
+        super.pressesEnded(presses, with: event)
+    }
+
+    /// With the kitty keyboard protocol's event reports on, the release of
+    /// each of `presses` the protocol reports, ended or taken back by UIKit.
+    private func sendKittyReleases(for presses: Set<UIPress>) {
         let flags = terminal.keyboardEnhancementFlags
-        if flags.contains(.reportEvents) {
-            for press in presses {
-                guard let key = press.key else { continue }
-                let hasAltOrCtrl = key.modifierFlags.contains(.control) || (optionAsMetaKey && key.modifierFlags.contains(.alternate))
-                let functionKey = kittyFunctionalKey(for: key.keyCode)
-                if let functionKey, isKittyModifierKey(functionKey) && !flags.contains(.reportAllKeys) {
-                    continue
-                }
-                if let functionKey,
-                   !flags.contains(.reportAllKeys),
-                   (functionKey == .tab || functionKey == .enter || functionKey == .backspace) {
-                    continue
-                }
-                let shouldHandle = flags.contains(.reportAllKeys) || hasAltOrCtrl || functionKey != nil
-                if shouldHandle, let kittyEvent = kittyKeyEvent(from: key, eventType: .release, text: nil) {
-                    _ = sendKittyEvent(kittyEvent)
-                }
+        guard flags.contains(.reportEvents) else { return }
+        for press in presses {
+            guard let key = press.key else { continue }
+            let hasAltOrCtrl = key.modifierFlags.contains(.control) || (optionAsMetaKey && key.modifierFlags.contains(.alternate))
+            let functionKey = kittyFunctionalKey(for: key.keyCode)
+            if let functionKey, isKittyModifierKey(functionKey) && !flags.contains(.reportAllKeys) {
+                continue
+            }
+            if let functionKey,
+               !flags.contains(.reportAllKeys),
+               (functionKey == .tab || functionKey == .enter || functionKey == .backspace) {
+                continue
+            }
+            let shouldHandle = flags.contains(.reportAllKeys) || hasAltOrCtrl || functionKey != nil
+            if shouldHandle, let kittyEvent = kittyKeyEvent(from: key, eventType: .release, text: nil) {
+                _ = sendKittyEvent(kittyEvent)
             }
         }
-        super.pressesEnded(presses, with: event)
     }
     
     var pendingSelectionChanged = false

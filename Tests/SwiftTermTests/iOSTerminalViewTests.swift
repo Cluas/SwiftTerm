@@ -517,5 +517,47 @@ struct iOSTerminalViewTests {
         #expect(!view.commandActive, "a press after it is taken as a ⌘ press")
         view.pressesEnded([letter], with: nil)
     }
+
+    // MARK: - The kitty keyboard protocol
+
+    /// With the kitty keyboard protocol's event reports on, a program hears
+    /// a key go down and up. A press UIKit takes back (the key held while
+    /// ⌘-Tab took the app away) sent no release, and the program took the
+    /// key as held for good: a game kept moving, an editor kept the key
+    /// down. A cancelled press is released as an ended one is.
+    @Test func aCancelledPressIsReleasedForTheKittyProtocol() {
+        let view = makeView()
+        let host = Host()
+        view.terminalDelegate = host
+        view.feed(text: "\u{1b}[>3u")    // disambiguate, report events
+        let release = Array("\u{1b}[1;1:3A".utf8)
+
+        let ended = FakePress(FakeKey(.keyboardUpArrow))
+        view.pressesBegan([ended], with: nil)
+        #expect(!host.sent.isEmpty, "the press was not sent")
+        host.sent = []
+        view.pressesEnded([ended], with: nil)
+        #expect(host.sent == [release], "an ended press: \(host.sent.map { String(decoding: $0, as: UTF8.self).debugDescription })")
+
+        let cancelled = FakePress(FakeKey(.keyboardUpArrow))
+        view.pressesBegan([cancelled], with: nil)
+        host.sent = []
+        view.pressesCancelled([cancelled], with: nil)
+        #expect(host.sent == [release], "a cancelled press: \(host.sent.map { String(decoding: $0, as: UTF8.self).debugDescription })")
+        #expect(view.keyRepeat == nil)
+    }
+
+    /// Without event reports a program hears no releases, cancelled or not.
+    @Test func noReleaseWithoutEventReports() {
+        let view = makeView()
+        let host = Host()
+        view.terminalDelegate = host
+        view.feed(text: "\u{1b}[>1u")    // disambiguate only
+        let press = FakePress(FakeKey(.keyboardUpArrow))
+        view.pressesBegan([press], with: nil)
+        host.sent = []
+        view.pressesCancelled([press], with: nil)
+        #expect(host.sent.isEmpty)
+    }
 }
 #endif
