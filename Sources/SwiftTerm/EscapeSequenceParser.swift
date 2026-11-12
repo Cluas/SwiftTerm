@@ -35,6 +35,9 @@ enum ParserState : UInt8 {
     case dcsIgnore
     case dcsIntermediate
     case dcsPassthrough
+    /// screen's title string, `ESC k <title> ST`: consumed, never printed.
+    /// The last state that fits the transition table's four state bits.
+    case screenTitleString
 }
 
 typealias cstring = [UInt8]
@@ -158,7 +161,7 @@ public class EscapeSequenceParser {
     static func buildVt500TransitionTable () -> TransitionTable
     {
         let table = TransitionTable(len: 4095)
-        let states = rinclusive(low: .ground, high: .dcsPassthrough)
+        let states = rinclusive(low: .ground, high: .screenTitleString)
         
         // table with default transition
         for state in states {
@@ -282,6 +285,22 @@ public class EscapeSequenceParser {
         table.add (codes: [0x1b, 0x9c], state: .dcsPassthrough, action: .dcsUnhook, next: .ground)
         table.add (code: NonAsciiPrintable, state: .oscString, action: .oscPut, next: .oscString)
         table.add (code: NonAsciiPrintable, state: .apcString, action: .oscPut, next: .apcString)
+        // screen's title, ESC k <title> ST, which a shell inside screen or
+        // tmux sends to name its window (oh-my-zsh: before every command and
+        // at every prompt). The multiplexer eats it, but a tmux control-mode
+        // client gets a pane's bytes raw, and here it fell through to an ESC
+        // dispatch: every title was printed into the pane. Consumed as tmux
+        // does: everything up to ESC (which starts the ST, or whatever
+        // sequence follows) or BEL; CAN and SUB abort it (the anywhere rules).
+        // The bytes 0x80-0xff are the title's UTF-8, not C1 controls: the
+        // prompt arrow ➜ ends in 0x9c, which must not end the title as ST.
+        table.add (code: 0x6b, state: .escape, action: .ignore, next: .screenTitleString)
+        table.add (codes: r (low: 0x00, high: 0x07) + r (low: 0x08, high: 0x18) + [0x19] + r (low: 0x1c, high: 0x20),
+                   state: .screenTitleString, action: .ignore, next: .screenTitleString)
+        table.add (code: 0x07, state: .screenTitleString, action: .ignore, next: .ground)
+        table.add (codes: printables + [0x7f], state: .screenTitleString, action: .ignore, next: .screenTitleString)
+        table.add (codes: r (low: 0x80, high: 0xa0) + [NonAsciiPrintable], state: .screenTitleString,
+                   action: .ignore, next: .screenTitleString)
         return table
     }
     
